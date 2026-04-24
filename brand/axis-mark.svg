@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="currentColor" stop-opacity="1"/>
+      <stop offset="60%" stop-color="currentColor" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g fill="currentColor">
+    <path d="M 60 18 L 102 60 L 60 102 L 18 60 Z"
+          fill="none" stroke="currentColor" stroke-width="1"
+          stroke-linejoin="round" opacity="0.55"/>
+    <path d="M 60 38 L 82 60 L 60 82 L 38 60 Z"
+          fill="none" stroke="currentColor" stroke-width="0.8"
+          stroke-linejoin="round" opacity="0.35"/>
+    <circle cx="60" cy="60" r="14" fill="url(#core)" opacity="0.7"/>
+    <circle cx="60" cy="60" r="3.5"/>
+    <circle cx="60" cy="10" r="1.2" opacity="0.5"/>
+    <circle cx="110" cy="60" r="1.2" opacity="0.5"/>
+    <circle cx="60" cy="110" r="1.2" opacity="0.5"/>
+    <circle cx="10" cy="60" r="1.2" opacity="0.5"/>
+  </g>
+</svg>

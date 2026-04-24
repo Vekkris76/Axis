@@ -1,0 +1,33 @@
+# Secrets — belt & braces (the .secrets dir has its own ignore too)
+.secrets/*
+!.secrets/.gitignore
+*.env
+*.env.*
+!*.env.example
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Per-operator Claude Code workspace config (contains local IPs / allow rules)
+.claude/
+
+# Build + dependency outputs (per-package .gitignore also covers these)
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime scratch
+.cache/
+tmp/
