@@ -1,126 +1,120 @@
-// Neural map — 3D exploratory view.
+// Neural map — 3D exploratory view, light theme.
 //
-// Same semantics as the 2D view, projected into world space: Axis at the
-// origin, agents/projects/periphery on concentric orbital shells. No physics
-// here — 3D is meant for quiet exploration, so positions are deterministic
-// and the only motion is gentle pulsing plus whatever the user does with the
-// camera.
+// Axis at origin. Each tier sits on a larger concentric *cube* shell — the
+// scaffolding is architectural. Node cores follow the grayscale ladder:
+// near-black for Axis, medium-dark for agents, medium for projects, light
+// for periphery. Shape encodes kind: most nodes are cubes (match the
+// scaffolding), but **projects are spheres** — the one round mark in an
+// otherwise rectilinear world, because projects are the containers where
+// the agents' work gathers. Axis gets a golden wireframe crown and a soft
+// radiant aureole. Canvas is transparent so the parent's mist drifts
+// through.
 
 import { useMemo, useRef, Suspense } from 'react'
-import { Canvas, useFrame, type ThreeEvent } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line, OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
+
+// OrbitControls type — imported from drei indirectly via three-stdlib, but
+// drei re-exports it. Using the runtime type via a minimal shape keeps us
+// independent of the stdlib package.
+type OrbitControlsImpl = {
+  target: THREE.Vector3
+  update: () => void
+}
 import type { EcoEdge, EcoNode, EcoProject, EdgeType } from '../../hooks/useEcosystem'
-import { HEX, nodeHex, phaseFor } from './shared/palette'
+import { edgeColor, HEX, nodeHex, nodeCoreHex, phaseFor } from './shared/palette'
 import {
   normalizedCentrality,
   TIER_RADIUS_3D,
-  TIER_Y_3D,
   tierFor,
   type Tier,
 } from './shared/layout'
 
-// Base node size per kind in world units. Axis larger; periphery smaller.
+// Base node size per kind in world units.
 const BASE_SIZE: Record<string, number> = {
   agent: 0.32,
-  project: 0.38,
-  skill: 0.2,
-  provider: 0.24,
-  channel: 0.2,
+  project: 0.4,
+  skill: 0.22,
+  provider: 0.26,
+  channel: 0.22,
 }
 
 function baseSize(n: EcoNode): number {
-  if (n.id === 'axis') return 0.75
+  if (n.id === 'axis') return 0.85
   return BASE_SIZE[n.kind] ?? 0.22
 }
 
 type Node3D = EcoNode & { position: THREE.Vector3; size: number; tier: Tier }
 
-// Deterministic angular layout: siblings of the same parent cluster together.
-// We first pick an angle for each tier-1 agent, then place that agent's
-// children near the agent's angle. This keeps the graph legible: a project
-// and its skills end up on the same "spoke" of the constellation.
+// Project a unit direction onto the surface of an axis-aligned cube of
+// half-side `r`. This is what lets us place Fibonacci-distributed directions
+// on cube shells instead of spheres — the structure becomes architectural.
+function projectOntoCube(dir: THREE.Vector3, r: number): THREE.Vector3 {
+  const d = dir.clone().normalize()
+  const ax = Math.abs(d.x)
+  const ay = Math.abs(d.y)
+  const az = Math.abs(d.z)
+  const m = Math.max(ax, ay, az)
+  if (m <= 1e-6) return new THREE.Vector3(r, 0, 0)
+  return d.multiplyScalar(r / m)
+}
+
 function buildPositions(
   nodes: EcoNode[],
   edges: EcoEdge[],
   centrality: Map<string, number>,
 ): Node3D[] {
-  // 1) Pick angles for tier 1 agents (equispaced, deterministic order).
+  // 1) Directions for tier-1 agents via Fibonacci spiral on the sphere
+  //    (spherical coordinates are still the cleanest way to spread points
+  //    evenly in 3D; we just project them onto the cube afterward).
   const agents = nodes
     .filter((n) => n.id !== 'axis' && n.kind === 'agent')
     .sort((a, b) => a.id.localeCompare(b.id))
-  const agentAngle = new Map<string, number>()
+  const agentDir = new Map<string, THREE.Vector3>()
   agents.forEach((a, i) => {
-    agentAngle.set(a.id, (i / Math.max(agents.length, 1)) * Math.PI * 2)
+    agentDir.set(a.id, fibonacciDirection(i, agents.length))
   })
 
-  // 2) Build a parent lookup: parent id -> angle (may be agent or project).
-  //    Projects use their first-found agent member if any.
-  const parentAngle = new Map<string, number>(agentAngle)
+  const parentDir = new Map<string, THREE.Vector3>(agentDir)
 
-  // 3) Lay out projects around tier 2. A project's angle is the average of
-  //    its agent members' angles; if none, fall back to a deterministic slot.
+  // 2) Projects get their own independent Fibonacci slot. Putting them at
+  //    the "average direction of their member agents" felt clever but made
+  //    projects that share an agent collapse onto each other — confusing
+  //    for the viewer, especially when the projects are in fact unrelated.
+  //    The connection to agents is still visible via the edges.
   const projects = nodes
     .filter((n) => n.kind === 'project')
     .sort((a, b) => a.id.localeCompare(b.id))
   projects.forEach((p, i) => {
-    // Look for agent members via edges of type `parent` or membership (we
-    // can't see EcoProject.members here — so hash the id for determinism).
-    const projectEdges = edges.filter((e) => e.to === p.id || e.from === p.id)
-    const memberAngles: number[] = []
-    for (const e of projectEdges) {
-      const other = e.from === p.id ? e.to : e.from
-      const a = agentAngle.get(other)
-      if (a !== undefined) memberAngles.push(a)
-    }
-    if (memberAngles.length > 0) {
-      // Average of angles on the unit circle (handle wrap-around via vectors)
-      let sx = 0
-      let sy = 0
-      for (const a of memberAngles) {
-        sx += Math.cos(a)
-        sy += Math.sin(a)
-      }
-      parentAngle.set(p.id, Math.atan2(sy, sx))
-    } else {
-      parentAngle.set(p.id, (i / Math.max(projects.length, 1)) * Math.PI * 2)
-    }
+    parentDir.set(p.id, fibonacciDirection(i, projects.length))
   })
 
-  // 4) Periphery: cluster around parent angle. Parent discovered via the
-  //    first incoming `parent` edge, else any edge to a known-angle node.
+  // 3) Periphery → parent anchor
   const peripheryParent = new Map<string, string>()
   for (const e of edges) {
     const et = (e.type ?? 'link') as EdgeType
     if (et === 'parent') {
-      // edge.to is the parent, edge.from is the child — per existing convention
-      // in useEcosystem types. We accept either direction and pick whichever
-      // end already has an angle.
-      if (parentAngle.has(e.to) && !peripheryParent.has(e.from)) {
+      if (parentDir.has(e.to) && !peripheryParent.has(e.from)) {
         peripheryParent.set(e.from, e.to)
-      } else if (parentAngle.has(e.from) && !peripheryParent.has(e.to)) {
+      } else if (parentDir.has(e.from) && !peripheryParent.has(e.to)) {
         peripheryParent.set(e.to, e.from)
       }
     }
   }
-  // Fallback: any edge connecting a periphery node to something with a known
-  // angle.
   for (const e of edges) {
-    if (!peripheryParent.has(e.from) && parentAngle.has(e.to)) {
+    if (!peripheryParent.has(e.from) && parentDir.has(e.to)) {
       peripheryParent.set(e.from, e.to)
     }
-    if (!peripheryParent.has(e.to) && parentAngle.has(e.from)) {
+    if (!peripheryParent.has(e.to) && parentDir.has(e.from)) {
       peripheryParent.set(e.to, e.from)
     }
   }
 
-  // 5) Compute final positions. Within a tier we add a small centrality-
-  //    driven radial nudge inward so well-connected nodes appear slightly
-  //    closer to Axis — visually rewarding centrality without breaking tiers.
+  // 4) Group siblings per parent for cap distribution
   const peripheryByParent = new Map<string, string[]>()
   for (const n of nodes) {
-    const tier = tierFor(n)
-    if (tier !== 3) continue
+    if (tierFor(n) !== 3) continue
     const pid = peripheryParent.get(n.id) ?? '__orphan__'
     if (!peripheryByParent.has(pid)) peripheryByParent.set(pid, [])
     peripheryByParent.get(pid)!.push(n.id)
@@ -128,11 +122,12 @@ function buildPositions(
   const peripheryIndex = new Map<string, number>()
   const peripheryTotal = new Map<string, number>()
   for (const [pid, ids] of peripheryByParent) {
-    ids.sort() // deterministic order
+    ids.sort()
     peripheryTotal.set(pid, ids.length)
     ids.forEach((id, i) => peripheryIndex.set(id, i))
   }
 
+  // 5) Emit positions, projecting each direction onto its tier's cube.
   const out: Node3D[] = []
   for (const n of nodes) {
     const tier = tierFor(n)
@@ -148,33 +143,72 @@ function buildPositions(
       continue
     }
 
-    let angle: number
+    let dir: THREE.Vector3
     if (tier === 1) {
-      angle = agentAngle.get(n.id) ?? 0
+      dir = agentDir.get(n.id)?.clone() ?? new THREE.Vector3(1, 0, 0)
     } else if (tier === 2) {
-      angle = parentAngle.get(n.id) ?? 0
+      dir = parentDir.get(n.id)?.clone() ?? new THREE.Vector3(1, 0, 0)
     } else {
       const pid = peripheryParent.get(n.id) ?? '__orphan__'
-      const parentA = parentAngle.get(pid) ?? 0
-      const count = peripheryTotal.get(pid) ?? 1
+      const base = parentDir.get(pid)?.clone() ?? fibonacciDirection(hash(n.id), 97)
+      const total = peripheryTotal.get(pid) ?? 1
       const idx = peripheryIndex.get(n.id) ?? 0
-      // Spread siblings in a ±0.35 rad arc around the parent angle
-      const spread = count === 1 ? 0 : (idx / (count - 1) - 0.5) * 0.7
-      angle = parentA + spread
+      dir = offsetOnSphericalCap(base, idx, total, 0.55)
     }
 
-    const r = TIER_RADIUS_3D[tier] * (1 - cent * 0.12) // subtle centrality inward pull
-    const y = TIER_Y_3D[tier]
+    const halfSide = TIER_RADIUS_3D[tier] * (1 - cent * 0.1)
     const size = baseSize(n) * (1 + cent * 0.35)
     out.push({
       ...n,
       tier,
       size,
-      position: new THREE.Vector3(Math.cos(angle) * r, y, Math.sin(angle) * r),
+      position: projectOntoCube(dir, halfSide),
     })
   }
 
   return out
+}
+
+function fibonacciDirection(i: number, n: number): THREE.Vector3 {
+  const safe = Math.max(n, 1)
+  const offset = 0.5
+  const y = 1 - (2 * (i + offset)) / safe
+  const radius = Math.sqrt(Math.max(0, 1 - y * y))
+  const theta = Math.PI * (1 + Math.sqrt(5)) * i
+  return new THREE.Vector3(Math.cos(theta) * radius, y, Math.sin(theta) * radius)
+}
+
+function offsetOnSphericalCap(
+  base: THREE.Vector3,
+  index: number,
+  total: number,
+  halfAngle: number,
+): THREE.Vector3 {
+  if (total <= 1) return base.clone()
+  const b = base.clone().normalize()
+  const ref =
+    Math.abs(b.y) < 0.9
+      ? new THREE.Vector3(0, 1, 0)
+      : new THREE.Vector3(1, 0, 0)
+  const u = new THREE.Vector3().crossVectors(b, ref).normalize()
+  const v = new THREE.Vector3().crossVectors(b, u).normalize()
+
+  const t = (index + 0.5) / total
+  const phi = halfAngle * Math.sqrt(t)
+  const theta = Math.PI * (1 + Math.sqrt(5)) * index
+  const sinPhi = Math.sin(phi)
+  const cosPhi = Math.cos(phi)
+  return b
+    .multiplyScalar(cosPhi)
+    .add(u.clone().multiplyScalar(sinPhi * Math.cos(theta)))
+    .add(v.clone().multiplyScalar(sinPhi * Math.sin(theta)))
+    .normalize()
+}
+
+function hash(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
+  return Math.abs(h)
 }
 
 export function MapView3D({
@@ -207,27 +241,48 @@ export function MapView3D({
     return m
   }, [positioned])
 
+  // Precompute the set of ids adjacent to the focused node, so we can dim
+  // everything else when something is hovered/selected.
+  const focusedId = hovered ?? selected
+  const related = useMemo(() => {
+    if (!focusedId) return null
+    const s = new Set<string>([focusedId])
+    for (const e of edges) {
+      if (e.from === focusedId) s.add(e.to)
+      if (e.to === focusedId) s.add(e.from)
+    }
+    return s
+  }, [focusedId, edges])
+
+  // Camera target: if a node is selected, center on it and pull in. The
+  // CameraController inside the Canvas does the actual lerping.
+  const selectedPos = useMemo(() => {
+    if (!selected) return null
+    const n = posById.get(selected)
+    return n ? n.position.clone() : null
+  }, [selected, posById])
+
   return (
-    <div
-      className="absolute inset-0"
-      onClick={() => setSelected(null)}
-    >
+    <div className="absolute inset-0" onClick={() => setSelected(null)}>
       <Canvas
-        camera={{ position: [0, 6, 18], fov: 45, near: 0.1, far: 200 }}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        camera={{ position: [14, 8, 22], fov: 45, near: 0.1, far: 200 }}
+        gl={{ antialias: true, powerPreference: 'high-performance', alpha: true }}
         dpr={[1, 2]}
+        style={{ background: 'transparent' }}
       >
-        <color attach="background" args={['#0b0f18']} />
-        <fog attach="fog" args={['#0b0f18', 22, 55]} />
+        {/* No color attach — transparent canvas lets the parent's animated
+            mist bleed through. Fog fades distant nodes toward white so the
+            depth cue still works. */}
+        <fog attach="fog" args={[HEX.bg, 32, 80]} />
 
         <Suspense fallback={null}>
-          <ambientLight intensity={0.35} />
-          <pointLight position={[0, 0, 0]} intensity={0.6} color="#ffd08a" distance={12} />
+          <ambientLight intensity={0.95} />
+          <directionalLight position={[12, 18, 10]} intensity={0.3} />
 
-          {/* Faint orbital rings in the equatorial plane */}
-          <OrbitRings />
+          <CubeShells />
+          <AxisAureole />
 
-          {/* Edges */}
+          {/* Edges first so nodes render on top */}
           {edges.map((e) => {
             const a = posById.get(e.from)
             const b = posById.get(e.to)
@@ -237,6 +292,7 @@ export function MapView3D({
               hovered === b.id ||
               selected === a.id ||
               selected === b.id
+            const dimmed = focusedId !== null && !focused
             return (
               <Edge3D
                 key={`${e.from}-${e.to}-${e.type ?? 'link'}`}
@@ -246,18 +302,22 @@ export function MapView3D({
                 active={e.active}
                 activity={e.activity ?? 0}
                 focused={focused}
+                dimmed={dimmed}
                 phase={phaseFor(`${e.from}-${e.to}`)}
+                restingColor={edgeColor(a.kind, a.id, b.kind, b.id)}
               />
             )
           })}
 
-          {/* Nodes */}
-          {positioned.map((n) => (
-            <Node3DMesh
+          {positioned.map((n, i) => (
+            <Node3DShape
               key={n.id}
               node={n}
+              index={i}
+              total={positioned.length}
               hovered={hovered === n.id}
               selected={selected === n.id}
+              dimmed={related !== null && !related.has(n.id)}
               onHover={(h) => setHovered(h ? n.id : null)}
               onSelect={() => {
                 setSelected((prev) => (prev === n.id ? null : n.id))
@@ -271,14 +331,15 @@ export function MapView3D({
             enableZoom={true}
             enableDamping={true}
             dampingFactor={0.1}
-            minDistance={6}
-            maxDistance={55}
-            minPolarAngle={Math.PI * 0.15}
-            maxPolarAngle={Math.PI * 0.75}
-            rotateSpeed={0.5}
+            minDistance={4}
+            maxDistance={80}
+            rotateSpeed={0.45}
             panSpeed={0.6}
             zoomSpeed={0.6}
+            autoRotate={selected === null}
+            autoRotateSpeed={0.35}
           />
+          <CameraFocus selectedPos={selectedPos} />
         </Suspense>
       </Canvas>
     </div>
@@ -286,51 +347,95 @@ export function MapView3D({
 }
 
 // ---------------------------------------------------------------------------
-// 3D node
+// 3D node — grayscale solid core + pastel wireframe envelope. Projects render
+// as spheres; everything else as cubes. Axis gets a golden crown.
 // ---------------------------------------------------------------------------
 
-function Node3DMesh({
+function Node3DShape({
   node,
+  index,
+  total,
   hovered,
   selected,
+  dimmed,
   onHover,
   onSelect,
 }: {
   node: Node3D
+  index: number
+  total: number
   hovered: boolean
   selected: boolean
+  dimmed: boolean
   onHover: (h: boolean) => void
   onSelect: () => void
 }) {
-  const meshRef = useRef<THREE.Mesh>(null)
-  const haloRef = useRef<THREE.Mesh>(null)
-  const color = useMemo(() => nodeHex(node), [node])
+  const groupRef = useRef<THREE.Group>(null)
+  const coreRef = useRef<THREE.Mesh>(null)
+  const shellRef = useRef<THREE.LineSegments>(null)
+  const haloColor = useMemo(() => nodeHex(node), [node])
+  const coreColor = useMemo(() => nodeCoreHex(node), [node])
   const isAxis = node.id === 'axis'
+  const isProject = node.kind === 'project'
   const focused = hovered || selected
   const phase = phaseFor(node.id)
+  // Entry animation: stagger nodes in from the origin over ~1.5s total
+  const entryDelay = (index / Math.max(total, 1)) * 0.9
+  const entryDuration = 0.8
+  const mountedAt = useRef<number | null>(null)
+
+  // Shell geometry depends on shape kind. Projects are spheres; everything
+  // else is a cube. Axis gets the crown.
+  const shellGeom = useMemo(() => {
+    const s = node.size * 2
+    if (isProject) {
+      return new THREE.EdgesGeometry(
+        new THREE.IcosahedronGeometry(node.size, 1),
+        18,
+      )
+    }
+    return new THREE.EdgesGeometry(new THREE.BoxGeometry(s, s, s))
+  }, [node.size, isProject])
+  const crownGeom = useMemo(() => {
+    if (!isAxis) return null
+    const s = node.size * 3.2
+    return new THREE.EdgesGeometry(new THREE.BoxGeometry(s, s, s))
+  }, [isAxis, node.size])
 
   useFrame(({ clock }) => {
     const t = clock.elapsedTime
-    if (haloRef.current) {
-      // Slow breathing halo, staggered per phase
+    if (mountedAt.current === null) mountedAt.current = t
+
+    // Entry animation: scale from 0 → 1 with easeOutBack-ish curve.
+    if (groupRef.current) {
+      const elapsed = t - (mountedAt.current ?? t) - entryDelay
+      const p = Math.max(0, Math.min(1, elapsed / entryDuration))
+      // easeOutCubic
+      const eased = 1 - Math.pow(1 - p, 3)
+      const scale = isAxis ? eased : eased
+      groupRef.current.scale.setScalar(scale)
+      groupRef.current.visible = p > 0
+    }
+
+    if (shellRef.current) {
       const period = 5 + phase * 2
       const pulse = 0.6 + 0.4 * Math.sin((t / period + phase) * Math.PI * 2)
-      const mat = haloRef.current.material as THREE.MeshBasicMaterial
-      mat.opacity =
-        (focused ? 0.35 : node.active ? 0.18 : 0.06) * (0.6 + 0.4 * pulse)
+      const mat = shellRef.current.material as THREE.LineBasicMaterial
+      const baseOp = focused ? 0.98 : node.active ? 0.85 : 0.45
+      // Softer dim — 0.5 instead of 0.22
+      const dim = dimmed ? 0.5 : 1
+      mat.opacity = baseOp * (0.75 + 0.25 * pulse) * dim
+      // Focus mode: tint the envelope gold when this node is the target
+      mat.color.set(focused ? HEX.focusGold : haloColor)
     }
-    if (meshRef.current && isAxis) {
-      // Axis gets a slow spin — the only moving node in the scene at rest
-      meshRef.current.rotation.y = t * 0.15
+
+    if (coreRef.current) {
+      const mat = coreRef.current.material as THREE.MeshStandardMaterial
+      mat.opacity = dimmed ? 0.6 : 1
+      mat.transparent = dimmed
+      if (isAxis) coreRef.current.rotation.y = t * 0.12
     }
   })
-
-  const halo = (
-    <mesh ref={haloRef} position={node.position}>
-      <sphereGeometry args={[node.size * 2.2, 16, 16]} />
-      <meshBasicMaterial color={color} transparent opacity={0.15} depthWrite={false} />
-    </mesh>
-  )
 
   const handlers = {
     onPointerOver: (e: ThreeEvent<PointerEvent>) => {
@@ -348,41 +453,54 @@ function Node3DMesh({
     },
   }
 
-  return (
-    <group>
-      {node.active && halo}
+  // Core is small relative to the wireframe shell: the shell is the visual
+  // envelope, the core is the mark inside it.
+  const coreSize = isAxis ? node.size * 0.78 : isProject ? node.size * 0.5 : node.size * 0.44
 
-      <mesh ref={meshRef} position={node.position} {...handlers}>
-        <sphereGeometry args={[node.size, 20, 20]} />
+  return (
+    <group ref={groupRef} position={node.position}>
+      {/* Grayscale solid core — sphere for projects, cube for everyone else */}
+      <mesh ref={coreRef} {...handlers}>
+        {isProject ? (
+          <sphereGeometry args={[coreSize, 24, 24]} />
+        ) : (
+          <boxGeometry args={[coreSize, coreSize, coreSize]} />
+        )}
         <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={focused ? 1.4 : node.active ? 0.7 : 0.25}
-          roughness={0.35}
-          metalness={0.1}
+          color={coreColor}
+          roughness={0.55}
+          metalness={isAxis ? 0.45 : 0.08}
         />
       </mesh>
 
-      {/* Thin outline ring for non-axis nodes when focused */}
-      {!isAxis && focused && (
-        <mesh position={node.position}>
-          <ringGeometry args={[node.size * 1.25, node.size * 1.4, 32]} />
-          <meshBasicMaterial
-            color={color}
-            transparent
-            opacity={0.9}
-            side={THREE.DoubleSide}
-            depthWrite={false}
-          />
-        </mesh>
+      {/* Pastel wireframe shell — the family accent */}
+      <lineSegments ref={shellRef} geometry={shellGeom}>
+        <lineBasicMaterial
+          color={haloColor}
+          transparent
+          opacity={focused ? 0.95 : 0.7}
+        />
+      </lineSegments>
+
+      {/* Axis crown — wireframe sphere in deep gold */}
+      {isAxis && crownGeom && (
+        <lineSegments geometry={crownGeom}>
+          <lineBasicMaterial color={HEX.axisGold} transparent opacity={0.5} />
+        </lineSegments>
       )}
 
-      {/* Label */}
+      {/* Focused-only outline: a second trace of the shell in focus gold */}
+      {!isAxis && focused && (
+        <lineSegments geometry={shellGeom}>
+          <lineBasicMaterial color={HEX.focusGold} transparent opacity={0.75} />
+        </lineSegments>
+      )}
+
       {(isAxis || focused) && (
         <Html
-          position={[node.position.x, node.position.y - node.size - 0.4, node.position.z]}
+          position={[0, -node.size - 0.35, 0]}
           center
-          distanceFactor={12}
+          distanceFactor={14}
           occlude={false}
           style={{ pointerEvents: 'none' }}
         >
@@ -390,9 +508,9 @@ function Node3DMesh({
             <div
               className="font-sans text-[13px]"
               style={{
-                color: 'var(--color-hangar-text)',
-                fontWeight: isAxis ? 500 : 300,
-                textShadow: '0 0 8px rgba(0,0,0,0.8)',
+                color: HEX.ink,
+                fontWeight: isAxis ? 600 : 400,
+                textShadow: '0 0 6px rgba(255,255,255,0.9)',
               }}
             >
               {node.label}
@@ -400,7 +518,7 @@ function Node3DMesh({
             {node.sublabel && (
               <div
                 className="font-mono text-[9px] uppercase tracking-[0.15em]"
-                style={{ color: 'var(--color-hangar-muted)' }}
+                style={{ color: HEX.inkMuted }}
               >
                 {node.sublabel.length > 48 ? node.sublabel.slice(0, 46) + '…' : node.sublabel}
               </div>
@@ -413,7 +531,7 @@ function Node3DMesh({
 }
 
 // ---------------------------------------------------------------------------
-// 3D edge
+// 3D edge — thin gray line with a traveling pulse dot when active.
 // ---------------------------------------------------------------------------
 
 function Edge3D({
@@ -423,7 +541,9 @@ function Edge3D({
   active,
   activity,
   focused,
+  dimmed,
   phase,
+  restingColor,
 }: {
   a: Node3D
   b: Node3D
@@ -431,24 +551,20 @@ function Edge3D({
   active: boolean
   activity: number
   focused: boolean
+  dimmed: boolean
   phase: number
+  restingColor: string
 }) {
-  const color = useMemo(
-    () => (type === 'serves' ? HEX.project : HEX.synapse),
-    [type],
-  )
+  // At rest, each edge wears the color of the hierarchy it connects; on
+  // focus it switches to the soft focus gold so the subnet pops.
+  const color = focused ? HEX.focusGold : restingColor
 
-  // Curve the edge with a small bow so it reads as a synapse, not a stick.
-  // The bow lifts through the midpoint along the normal of (a, b) in 3D;
-  // we pick the axis perpendicular to the line that has the largest component
-  // so the bow is visible from most camera angles.
   const points = useMemo(() => {
     const mid = new THREE.Vector3().addVectors(a.position, b.position).multiplyScalar(0.5)
     const dir = new THREE.Vector3().subVectors(b.position, a.position)
     const len = dir.length()
     const sag =
-      type === 'parent' ? 0 : type === 'depends_on' ? 0.6 : type === 'serves' ? 0.4 : 1.0
-    // Offset outward from origin so edges don't pass through Axis
+      type === 'parent' ? 0 : type === 'depends_on' ? 0.5 : type === 'serves' ? 0.35 : 0.9
     const outward = mid.clone().normalize()
     if (!Number.isFinite(outward.x)) outward.set(0, 1, 0)
     const ctrl = mid.clone().add(outward.multiplyScalar(sag * Math.min(len * 0.2, 2.5)))
@@ -456,9 +572,10 @@ function Edge3D({
     return curve.getPoints(24)
   }, [a.position, b.position, type])
 
-  const opacity = focused ? 0.95 : active ? (type === 'parent' ? 0.5 : 0.3) : 0.12
-  const lineWidth = type === 'parent' ? (focused ? 2.4 : 1.6) : focused ? 1.6 : 1
-
+  const base = focused ? 0.95 : active ? (type === 'parent' ? 0.72 : 0.52) : 0.38
+  // Softer dim — 0.45 instead of the earlier 0.18
+  const opacity = dimmed ? base * 0.45 : base
+  const lineWidth = type === 'parent' ? (focused ? 2.4 : 1.6) : focused ? 1.8 : 1.1
   const dashed = type === 'collaborates_with' || type === 'serves'
 
   return (
@@ -476,7 +593,6 @@ function Edge3D({
       {active && (
         <EdgePulse3D
           points={points}
-          color={color}
           activity={activity}
           focused={focused}
           type={type}
@@ -489,14 +605,12 @@ function Edge3D({
 
 function EdgePulse3D({
   points,
-  color,
   activity,
   focused,
   type,
   phase,
 }: {
   points: THREE.Vector3[]
-  color: string
   activity: number
   focused: boolean
   type: EdgeType
@@ -516,45 +630,150 @@ function EdgePulse3D({
     const p = curve.getPoint(t)
     ref.current.position.copy(p)
     const mat = ref.current.material as THREE.MeshBasicMaterial
-    // Fade in/out so pulse looks like a traveling signal, not a bead on rail
     const fade = Math.sin(t * Math.PI)
-    mat.opacity = (focused ? 1 : 0.55) * fade
+    mat.opacity = (focused ? 1 : 0.7) * fade
   })
 
-  const size = focused ? 0.08 : 0.05 + effective * 0.03
+  const size = focused ? 0.06 : 0.04 + effective * 0.02
 
   return (
     <mesh ref={ref}>
       <sphereGeometry args={[size, 10, 10]} />
-      <meshBasicMaterial color={color} transparent depthWrite={false} />
+      <meshBasicMaterial color={HEX.ink} transparent depthWrite={false} />
     </mesh>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Orbital rings — subtle reference geometry
+// Concentric wireframe spheres per tier. Very faint — just enough for the
+// eye to read the onion structure.
 // ---------------------------------------------------------------------------
 
-function OrbitRings() {
+function CubeShells() {
+  // Concentric wireframe cubes. Two passes per tier:
+  //   1) A subdivided grid (4×4×4) with low opacity — the "paper grid"
+  //      texture that adds more divisions and reads as structure.
+  //   2) The outer 12 edges at higher opacity — the hard silhouette.
+  // Outer tiers get progressively bolder silhouettes so the outermost cube
+  // is the darkest and anchors the composition; inner tiers recede.
   return (
     <group>
       {([1, 2, 3] as Tier[]).map((t) => {
         const r = TIER_RADIUS_3D[t]
-        const y = TIER_Y_3D[t]
+        const size = r * 2
+        // Outer silhouette: just the 12 corner edges
+        const silhouette = new THREE.EdgesGeometry(
+          new THREE.BoxGeometry(size, size, size),
+        )
+        // Subdivided grid for the "more divisions" look
+        const gridOp = 0.06 + (t - 1) * 0.02 // inner tier faintest
+        const silhouetteOp = 0.18 + (t - 1) * 0.18 // outer tier strongest
+        const silhouetteWidth = 0.8 + (t - 1) * 0.8
         return (
-          <mesh key={t} rotation={[-Math.PI / 2, 0, 0]} position={[0, y, 0]}>
-            <ringGeometry args={[r - 0.02, r + 0.02, 128]} />
-            <meshBasicMaterial
-              color={HEX.synapse}
-              transparent
-              opacity={0.07}
-              side={THREE.DoubleSide}
-              depthWrite={false}
-            />
-          </mesh>
+          <group key={t}>
+            {/* Subdivided grid face lines */}
+            <mesh>
+              <boxGeometry
+                args={[size, size, size, 4, 4, 4]}
+              />
+              <meshBasicMaterial
+                color={HEX.inkMuted}
+                transparent
+                opacity={gridOp}
+                wireframe
+                depthWrite={false}
+              />
+            </mesh>
+            {/* Outer silhouette — crisper and darker for outer tiers */}
+            <lineSegments geometry={silhouette}>
+              <lineBasicMaterial
+                color={HEX.ink}
+                transparent
+                opacity={silhouetteOp}
+                linewidth={silhouetteWidth}
+              />
+            </lineSegments>
+          </group>
         )
       })}
     </group>
   )
 }
 
+// ---------------------------------------------------------------------------
+// Axis aureole — soft golden glow radiating outward. Three nested back-faced
+// spheres with decreasing opacity fake a volumetric halo without a shader.
+// ---------------------------------------------------------------------------
+
+// Smoothly lerp the OrbitControls target (and pull the camera closer) when
+// a node is selected. When selection clears, drift back to the origin at
+// the default distance.
+function CameraFocus({ selectedPos }: { selectedPos: THREE.Vector3 | null }) {
+  const camera = useThree((s) => s.camera)
+  const controls = useThree((s) => s.controls) as OrbitControlsImpl | null
+  const restTarget = useMemo(() => new THREE.Vector3(0, 0, 0), [])
+  const restDist = 24
+
+  useFrame(() => {
+    if (!controls) return
+    const t = selectedPos ?? restTarget
+    // Lerp controls.target toward the desired point
+    controls.target.lerp(t, 0.08)
+
+    // Adjust camera distance: closer when focusing, rest distance otherwise.
+    const desiredDist = selectedPos ? 7 : restDist
+    const dir = new THREE.Vector3().subVectors(camera.position, controls.target)
+    const curDist = dir.length() || 0.001
+    const nextDist = THREE.MathUtils.lerp(curDist, desiredDist, 0.06)
+    dir.normalize().multiplyScalar(nextDist)
+    camera.position.copy(controls.target).add(dir)
+
+    controls.update()
+  })
+  return null
+}
+
+function AxisAureole() {
+  const ref = useRef<THREE.Group>(null)
+  useFrame(({ clock }) => {
+    if (!ref.current) return
+    const t = clock.elapsedTime
+    // Gentle breathing — ±4% scale, very slow
+    const s = 1 + Math.sin(t * 0.25) * 0.04
+    ref.current.scale.setScalar(s)
+  })
+  return (
+    <group ref={ref}>
+      <mesh>
+        <sphereGeometry args={[1.5, 32, 24]} />
+        <meshBasicMaterial
+          color={HEX.axis}
+          transparent
+          opacity={0.12}
+          side={THREE.BackSide}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[2.5, 32, 24]} />
+        <meshBasicMaterial
+          color={HEX.axis}
+          transparent
+          opacity={0.06}
+          side={THREE.BackSide}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[4, 32, 24]} />
+        <meshBasicMaterial
+          color={HEX.axisGold}
+          transparent
+          opacity={0.025}
+          side={THREE.BackSide}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
+  )
+}

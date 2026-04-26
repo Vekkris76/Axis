@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import type { EcoNode, EcoProject } from '../../../hooks/useEcosystem'
+import { INK, INK_MUTED, nodeColor } from './palette'
 
 export function Inspector({
   node,
@@ -9,34 +10,40 @@ export function Inspector({
   projects: EcoProject[]
 }) {
   const memberOf = projects.filter((p) => p.members.includes(node.id))
+  const accent = nodeColor(node)
   return (
     <motion.div
       key={node.id}
       initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: 1, y: 0 }}
-      className="frosted pointer-events-none absolute top-4 left-4 max-w-xs rounded-xl px-5 py-4"
+      className="pointer-events-none absolute top-4 left-4 max-w-xs rounded-xl border border-neutral-200 bg-white/90 px-5 py-4 shadow-sm backdrop-blur"
+      style={{ color: INK }}
     >
       <div className="mb-1 flex items-center gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-hangar-muted">
+        <span
+          className="font-mono text-[10px] uppercase tracking-[0.25em]"
+          style={{ color: INK_MUTED }}
+        >
           {node.kind}
         </span>
         <span
-          className={
-            'h-1.5 w-1.5 rounded-full ' +
-            (node.active
-              ? 'bg-hangar-accent shadow-[0_0_6px_currentColor]'
-              : 'bg-hangar-muted/60')
-          }
+          className="h-1.5 w-1.5 rounded-full"
+          style={{ background: node.active ? accent : '#d4d4d4' }}
         />
       </div>
-      <div className="font-sans text-lg text-hangar-text">{node.label}</div>
+      <div className="font-sans text-lg" style={{ color: INK }}>
+        {node.label}
+      </div>
       {node.sublabel && (
-        <div className="font-mono text-xs text-hangar-muted">
+        <div className="font-mono text-xs" style={{ color: INK_MUTED }}>
           {node.sublabel}
         </div>
       )}
       {node.details?.status && (
-        <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em] text-hangar-muted">
+        <div
+          className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em]"
+          style={{ color: INK_MUTED }}
+        >
           {node.details.status}
         </div>
       )}
@@ -45,11 +52,12 @@ export function Inspector({
           {memberOf.map((p) => (
             <span
               key={p.id}
-              className="flex items-center gap-1 rounded-full border border-hangar-border/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-hangar-muted"
+              className="flex items-center gap-1 rounded-full border border-neutral-200 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em]"
+              style={{ color: INK_MUTED }}
             >
               <span
                 className="h-1 w-1 rounded-full"
-                style={{ background: p.color ?? 'oklch(0.85 0.12 200)' }}
+                style={{ background: p.color ?? accent }}
               />
               {p.name}
             </span>

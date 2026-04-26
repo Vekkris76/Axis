@@ -1,8 +1,8 @@
 // Neural map shell.
 //
-// Hosts the header, inspector, project rail, and the 2D/3D toggle. The two
-// views live in their own files — this file only wires them up and provides
-// the shared chrome.
+// Hosts the header, inspector, project rail, and the 2D/3D toggle. The map
+// route is a light-theme island: white background, charcoal ink, pastel
+// accents. The rest of the dashboard keeps its dark chrome for now.
 
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
@@ -13,6 +13,7 @@ import { useEcosystem } from '../../hooks/useEcosystem'
 import { MapView2D } from './MapView2D'
 import { Inspector } from './shared/Inspector'
 import { ProjectRail } from './shared/ProjectRail'
+import { INK_LINE, INK_MUTED } from './shared/palette'
 
 // 3D view (and its three.js/drei/r3f deps) is code-split so the 2D path
 // doesn't pay its bundle cost.
@@ -60,20 +61,20 @@ export function MapView() {
   }, [data, hovered, selected])
 
   return (
-    <div className="relative flex h-full min-h-screen w-full flex-col">
-      <header className="flex items-center justify-between border-b border-hangar-border/40 px-6 py-4">
+    <div className="relative flex h-full min-h-screen w-full flex-col bg-white text-neutral-900">
+      <header className="flex items-center justify-between border-b border-neutral-200 px-6 py-4">
         <div className="flex items-center gap-3">
           <Link
             to="/"
             title={t('header.back')}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-hangar-muted transition hover:text-hangar-text"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-neutral-500 transition hover:text-neutral-900"
           >
             <ArrowLeft size={18} />
           </Link>
-          <span className="font-mono text-xs uppercase tracking-[0.3em] text-hangar-accent">
+          <span className="font-mono text-xs uppercase tracking-[0.3em] text-neutral-900">
             Mesh
           </span>
-          <span className="font-mono text-xs uppercase tracking-[0.2em] text-hangar-muted">
+          <span className="font-mono text-xs uppercase tracking-[0.2em] text-neutral-400">
             / neural map
           </span>
         </div>
@@ -82,25 +83,23 @@ export function MapView() {
           <span
             className={
               'h-1.5 w-1.5 rounded-full ' +
-              (health.connected
-                ? 'bg-hangar-accent shadow-[0_0_6px_currentColor]'
-                : 'bg-hangar-muted/60')
+              (health.connected ? 'bg-neutral-800' : 'bg-neutral-300')
             }
           />
-          <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-hangar-muted">
+          <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-500">
             {health.connected ? 'live' : 'desconectado'}
           </span>
           <Link
             to="/app"
             title={t('mesh.open_chat')}
-            className="ml-2 flex h-8 w-8 items-center justify-center rounded-md border border-hangar-border/60 text-hangar-muted transition hover:border-hangar-accent/60 hover:text-hangar-accent"
+            className="ml-2 flex h-8 w-8 items-center justify-center rounded-md border border-neutral-300 text-neutral-500 transition hover:border-neutral-500 hover:text-neutral-900"
           >
             <MessageSquareMore size={16} />
           </Link>
         </div>
       </header>
 
-      <main className="relative flex-1 overflow-hidden">
+      <main className="map-bruma relative flex-1 overflow-hidden">
         {mode === '2d' ? (
           <MapView2D
             ecosystem={data}
@@ -136,7 +135,10 @@ export function MapView() {
         )}
 
         {mode === '2d' && (
-          <div className="pointer-events-none absolute top-4 right-4 flex flex-col items-end gap-1 font-mono text-[10px] uppercase tracking-[0.2em] text-hangar-muted">
+          <div
+            className="pointer-events-none absolute top-4 right-4 flex flex-col items-end gap-1 font-mono text-[10px] uppercase tracking-[0.2em]"
+            style={{ color: INK_MUTED }}
+          >
             <EdgeLegend label="parent" kind="solid" weight={1.6} />
             <EdgeLegend label="depends on" kind="solid" weight={1} />
             <EdgeLegend label="collaborates" kind="dashed" weight={0.8} />
@@ -159,15 +161,15 @@ function ViewToggle({
   onChange: (m: '2d' | '3d') => void
 }) {
   return (
-    <div className="flex items-center rounded-md border border-hangar-border/60 p-0.5">
+    <div className="flex items-center rounded-md border border-neutral-300 p-0.5">
       <button
         onClick={() => onChange('2d')}
         title="2D view"
         className={
           'flex h-7 w-9 items-center justify-center rounded text-xs transition ' +
           (mode === '2d'
-            ? 'bg-hangar-accent/15 text-hangar-accent'
-            : 'text-hangar-muted hover:text-hangar-text')
+            ? 'bg-neutral-900 text-white'
+            : 'text-neutral-500 hover:text-neutral-900')
         }
       >
         <Network size={14} />
@@ -178,8 +180,8 @@ function ViewToggle({
         className={
           'flex h-7 w-9 items-center justify-center rounded text-xs transition ' +
           (mode === '3d'
-            ? 'bg-hangar-accent/15 text-hangar-accent'
-            : 'text-hangar-muted hover:text-hangar-text')
+            ? 'bg-neutral-900 text-white'
+            : 'text-neutral-500 hover:text-neutral-900')
         }
       >
         <Box size={14} />
@@ -191,7 +193,7 @@ function ViewToggle({
 function ViewLoading() {
   return (
     <div className="absolute inset-0 flex items-center justify-center">
-      <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-hangar-muted">
+      <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-500">
         loading 3d view…
       </span>
     </div>
@@ -207,7 +209,6 @@ function EdgeLegend({
   kind: 'solid' | 'dashed'
   weight: number
 }) {
-  const stroke = 'oklch(0.85 0.12 200)'
   return (
     <div className="flex items-center gap-2">
       <svg width="26" height="8">
@@ -216,7 +217,7 @@ function EdgeLegend({
           y1="4"
           x2="25"
           y2="4"
-          stroke={stroke}
+          stroke={INK_LINE}
           strokeWidth={weight}
           strokeDasharray={kind === 'dashed' ? '2 6' : undefined}
         />

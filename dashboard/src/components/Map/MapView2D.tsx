@@ -17,9 +17,12 @@ import {
 } from 'd3-force'
 import type { EcoEdge, EcoNode, EcoProject, EdgeType } from '../../hooks/useEcosystem'
 import {
-  COLOR_PROJECT,
-  COLOR_SYNAPSE,
+  GOLD_DEEP,
+  HALO_PROJECT,
+  INK_LINE,
+  INK_MUTED,
   nodeColor,
+  nodeCore,
   phaseFor,
 } from './shared/palette'
 import {
@@ -293,7 +296,8 @@ export function MapView2D({
           transition={{ type: 'spring', stiffness: 75, damping: 22 }}
           style={{ transformOrigin: '0 0' }}
         >
-          {/* Orbit rings — quiet, almost subliminal */}
+          {/* Orbit rings — grey guides on the white canvas, crisp enough to
+              be a real part of the composition */}
           {[1, 2, 3].map((t) => (
             <circle
               key={t}
@@ -301,10 +305,10 @@ export function MapView2D({
               cy={CENTER_Y}
               r={TIER_RADIUS_2D[t as 1 | 2 | 3]}
               fill="none"
-              stroke="oklch(0.85 0.12 200)"
-              strokeOpacity={0.09}
+              stroke={INK_LINE}
+              strokeOpacity={0.6}
               strokeWidth={0.8}
-              strokeDasharray="2 10"
+              strokeDasharray="2 8"
             />
           ))}
 
@@ -366,11 +370,11 @@ export function MapView2D({
             e.stopPropagation()
             resetView()
           }}
-          className="frosted rounded-md px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-hangar-muted transition hover:text-hangar-text"
+          className="rounded-md border border-neutral-300 bg-white/80 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500 backdrop-blur transition hover:border-neutral-400 hover:text-neutral-900"
         >
           recenter
         </button>
-        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-hangar-muted/60">
+        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-400">
           zoom {userZoom.toFixed(2)}×
         </span>
       </div>
@@ -398,9 +402,11 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
   const isAxis = node.id === 'axis'
   const isProject = node.kind === 'project'
   const focused = hovered || selected
-  const coreR = focused ? r * 0.45 : r * 0.35
-  const color = nodeColor(node)
-  const strokeColor = node.active ? color : 'oklch(0.55 0.03 250)'
+  // Core is the only solid shape. Small, dark, unambiguous.
+  const coreR = isAxis ? Math.max(5, r * 0.45) : focused ? 4.5 : 3.5
+  const halo = nodeColor(node)
+  const core = nodeCore(node)
+  const strokeColor = node.active ? halo : INK_LINE
   const phase = phaseFor(node.id)
   const haloDelay = phase * 4
 
@@ -411,17 +417,20 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
       onClick={onClick}
       style={{ cursor: 'pointer' }}
     >
+      {/* Outer breathing trace — thin stroked ring, no fill. Pulses opacity
+          and expands a touch so the node feels alive without a blob. */}
       {node.active && (
         <motion.circle
           initial={false}
           cx={x}
           cy={y}
-          r={r * (isProject ? 1.8 : 2.4)}
-          fill={color}
-          fillOpacity={0.22}
+          r={r * (isProject ? 1.4 : 1.6)}
+          fill="none"
+          stroke={halo}
+          strokeWidth={focused ? 1 : 0.7}
           animate={{
-            opacity: focused ? [0.7, 1, 0.7] : [0.16, 0.3, 0.16],
-            scale: focused ? 1.15 : 1,
+            opacity: focused ? [0.5, 0.85, 0.5] : [0.18, 0.45, 0.18],
+            scale: focused ? 1.08 : 1,
           }}
           transition={{
             opacity: {
@@ -432,31 +441,48 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
             },
             scale: { duration: 0.3 },
           }}
-          style={{ transformOrigin: `${x}px ${y}px`, mixBlendMode: 'screen' }}
+          style={{ transformOrigin: `${x}px ${y}px` }}
         />
       )}
 
       {isProject ? (
         <>
+          {/* Octagon — stroke only, no fill */}
           <motion.polygon
             points={octagonPoints(x, y, r)}
-            fill={color}
-            fillOpacity={focused ? 0.22 : 0.12}
-            stroke={color}
-            strokeWidth={focused ? 2 : 1.2}
+            fill="none"
+            stroke={strokeColor}
+            strokeWidth={focused ? 1.6 : 1.2}
+            animate={{ opacity: focused ? 1 : node.active ? 0.9 : 0.4 }}
             transition={{ duration: 0.25 }}
           />
+          {/* Inner trace — second concentric octagon for the "container" read */}
           <polygon
-            points={octagonPoints(x, y, r * 0.55)}
+            points={octagonPoints(x, y, r * 0.6)}
             fill="none"
-            stroke={color}
-            strokeWidth={0.8}
-            opacity={0.7}
+            stroke={strokeColor}
+            strokeWidth={0.6}
+            opacity={0.5}
           />
-          <circle cx={x} cy={y} r={3.5} fill={color} />
+          {/* Dark core dot */}
+          <circle cx={x} cy={y} r={coreR} fill={core} />
         </>
       ) : (
         <>
+          {/* Axis gets an extra golden outer trace — the "supreme" mark */}
+          {isAxis && (
+            <circle
+              cx={x}
+              cy={y}
+              r={r * 1.35}
+              fill="none"
+              stroke={GOLD_DEEP}
+              strokeWidth={0.8}
+              strokeDasharray="1 3"
+              opacity={0.75}
+            />
+          )}
+          {/* Main family ring — stroke only */}
           <motion.circle
             initial={false}
             cx={x}
@@ -464,19 +490,24 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
             r={focused ? r * 1.15 : r}
             fill="none"
             stroke={strokeColor}
-            strokeWidth={focused ? 1.6 : 1}
-            animate={{ opacity: focused ? 1 : node.active ? 0.7 : 0.32 }}
+            strokeWidth={focused ? 1.8 : isAxis ? 1.6 : 1.2}
+            animate={{ opacity: focused ? 1 : node.active ? 0.95 : 0.4 }}
             transition={{ duration: 0.25 }}
           />
+          {/* Dark core — the only solid shape */}
           <motion.circle
             initial={false}
             cx={x}
             cy={y}
-            r={focused ? coreR * 1.2 : coreR}
-            fill={color}
-            animate={{ opacity: node.active ? 1 : 0.4 }}
+            r={coreR}
+            fill={core}
+            animate={{ opacity: node.active ? 1 : 0.45 }}
             transition={{ duration: 0.25 }}
           />
+          {/* Axis: tiny gold speck inside the core for the supreme accent */}
+          {isAxis && (
+            <circle cx={x} cy={y} r={1.6} fill={GOLD_DEEP} opacity={0.95} />
+          )}
         </>
       )}
 
@@ -484,9 +515,9 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
         x={x}
         y={y + r + 16}
         textAnchor="middle"
-        className="select-none fill-hangar-text font-sans"
+        className="select-none font-sans"
         animate={{ fontSize: focused ? 13 : isAxis ? 14 : isProject ? 12 : 11 }}
-        style={{ fontWeight: isProject ? 400 : 300, pointerEvents: 'none' }}
+        style={{ fill: core, fontWeight: isProject ? 500 : 400, pointerEvents: 'none' }}
       >
         {node.label}
       </motion.text>
@@ -495,9 +526,14 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
           x={x}
           y={y + r + 30}
           textAnchor="middle"
-          className="select-none fill-hangar-muted font-mono"
+          className="select-none font-mono"
           animate={{ opacity: focused ? 1 : 0.65 }}
-          style={{ fontSize: 9, letterSpacing: '0.1em', pointerEvents: 'none' }}
+          style={{
+            fill: INK_MUTED,
+            fontSize: 9,
+            letterSpacing: '0.1em',
+            pointerEvents: 'none',
+          }}
         >
           {isProject && node.details?.memberCount != null
             ? `${node.details.memberCount} members`
@@ -557,7 +593,7 @@ function MeshEdge({
   const cy = my + ny * sag
   const d = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`
 
-  const strokeBase = type === 'serves' ? COLOR_PROJECT : COLOR_SYNAPSE
+  const strokeBase = type === 'serves' ? HALO_PROJECT : INK_LINE
   const strokeDash =
     type === 'parent'
       ? undefined
@@ -576,7 +612,7 @@ function MeshEdge({
         : type === 'serves'
           ? focused ? 1 : 0.55
           : focused ? 0.9 : 0.6
-  const baseOpacity = type === 'serves' ? (focused ? 0.9 : 0.3) : focused ? 0.95 : active ? 0.45 : 0.2
+  const baseOpacity = type === 'serves' ? (focused ? 0.9 : 0.45) : focused ? 0.95 : active ? 0.7 : 0.4
 
   return (
     <g>
@@ -613,9 +649,9 @@ function EdgePulse({
   const effective = Math.max(baseline, activity)
   const count = focused ? 3 : effective > 0.5 ? 2 : 1
   const duration = focused ? 1.5 : 6 - effective * 3.5
-  const pulseColor = type === 'serves' ? COLOR_PROJECT : COLOR_SYNAPSE
+  const pulseColor = type === 'serves' ? HALO_PROJECT : '#404040'
   const pulseR = focused ? 2.8 : type === 'serves' ? 1.4 : 1.8 + effective
-  const peakOpacity = type === 'serves' ? 0.45 : focused ? 1 : 0.5 + effective * 0.5
+  const peakOpacity = type === 'serves' ? 0.55 : focused ? 1 : 0.6 + effective * 0.4
 
   return (
     <>
