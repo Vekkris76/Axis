@@ -477,73 +477,89 @@ function Node3DShape({
     },
   }
 
-  // Per-kind facets: every node renders as a faceted wireframe primitive
-  // built once and reused. No spheres → no "planet" reading.
-  //   Axis      : octahedron with double wireframe overlay (signature glyph)
-  //   project   : prism (BoxGeometry stretched) — reads as 'data block'
-  //   agent     : octahedron — sharp, mid-size diamond
-  //   provider  : tetrahedron — three-faced wedge
-  //   skill     : icosahedron at low detail — small geode
-  //   channel   : torus square — small ring
-  const facetGeom = useMemo(() => {
-    const s = node.size
-    if (isAxis) return new THREE.OctahedronGeometry(s * 1.05, 0)
-    if (isProject) return new THREE.BoxGeometry(s * 1.55, s * 1.55, s * 1.55)
-    if (node.kind === 'provider') return new THREE.TetrahedronGeometry(s * 1.15, 0)
-    if (node.kind === 'skill') return new THREE.IcosahedronGeometry(s * 0.9, 0)
-    if (node.kind === 'channel')
-      return new THREE.TorusGeometry(s * 0.85, s * 0.18, 6, 16)
-    return new THREE.OctahedronGeometry(s, 0)
-  }, [node.size, isAxis, isProject, node.kind])
-
-  const wireGeom = useMemo(
-    () => new THREE.EdgesGeometry(facetGeom),
-    [facetGeom],
-  )
-
-  // Spin Axis slowly so the central glyph reads as alive.
-  useFrame(({ clock }) => {
-    if (!isAxis || !groupRef.current) return
-    groupRef.current.rotation.y = clock.elapsedTime * 0.12
-  })
+  // Neuron metaphor: every node is a small emissive soma + an array of
+  // thin dendrite filaments radiating outwards. Axis has many more
+  // dendrites and they reach further so it reads as the "supreme
+  // neuron". Deterministic per node.id so the dendrites are stable
+  // across re-renders.
+  const dendrites = useMemo(() => {
+    // Stable per-node RNG (linear congruential) seeded from node.id
+    let seed = 0
+    for (let i = 0; i < node.id.length; i++) seed = (seed * 31 + node.id.charCodeAt(i)) | 0
+    const rng = () => {
+      seed = (seed * 1664525 + 1013904223) | 0
+      return ((seed >>> 0) % 100000) / 100000
+    }
+    const count = isAxis ? 28 : isProject ? 14 : node.kind === 'agent' ? 12 : 8
+    const lenBase = isAxis ? 2.4 : isProject ? 1.4 : 1.0
+    const lines: { points: THREE.Vector3[]; thick: number }[] = []
+    for (let i = 0; i < count; i++) {
+      // Random direction on the sphere
+      const u = rng() * 2 - 1
+      const theta = rng() * Math.PI * 2
+      const s = Math.sqrt(1 - u * u)
+      const dir = new THREE.Vector3(
+        s * Math.cos(theta),
+        u,
+        s * Math.sin(theta),
+      )
+      // Length varies — some dendrites are short, some reach far
+      const len = lenBase * (0.55 + rng() * 0.9)
+      // Slight curve: bend mid-point a little perpendicular to dir
+      const mid = dir.clone().multiplyScalar(len * 0.55)
+      const perp = new THREE.Vector3(-dir.z, rng() * 0.4 - 0.2, dir.x)
+        .normalize()
+        .multiplyScalar(len * 0.18 * (rng() - 0.5))
+      mid.add(perp)
+      const end = dir.clone().multiplyScalar(len)
+      // Three-point curve sampled at 6 segments — feels organic
+      const curve = new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(0, 0, 0),
+        mid,
+        end,
+      )
+      lines.push({ points: curve.getPoints(6), thick: 0.6 + rng() * 0.7 })
+    }
+    return lines
+  }, [node.id, node.kind, isAxis, isProject])
 
   return (
     <group ref={groupRef} position={node.position}>
-      {/* Solid faceted body — emissive, dim by default; bloom picks up
-          the edges of the wireframe rather than the body itself. */}
-      <mesh ref={coreRef} {...handlers} geometry={facetGeom}>
+      {/* Soma — small emissive sphere; the neuron's body. */}
+      <mesh ref={coreRef} {...handlers}>
+        <sphereGeometry args={[node.size * 0.65, 20, 20]} />
         <meshStandardMaterial
-          color={HUD_BG}
+          color={haloColor}
           emissive={haloColor}
-          emissiveIntensity={baseEmissive * 0.18}
-          roughness={0.4}
-          metalness={0.4}
-          transparent
-          opacity={0.92}
+          emissiveIntensity={baseEmissive * 1.1}
+          roughness={0.35}
+          metalness={0}
           toneMapped={false}
         />
       </mesh>
 
-      {/* Wireframe overlay — the actual neon outline. This is what reads
-          as the node from any distance. */}
-      <lineSegments geometry={wireGeom}>
-        <lineBasicMaterial
+      {/* Dendrites — thin curved filaments radiating from the soma.
+          Drawn with drei <Line> so they have real pixel-width on WebGL. */}
+      {dendrites.map((d, i) => (
+        <Line
+          key={i}
+          points={d.points}
           color={focused ? HUD_AMBER : haloColor}
+          lineWidth={d.thick * (focused ? 1.6 : 1)}
           transparent
-          opacity={focused ? 0.95 : 0.72}
+          opacity={focused ? 0.85 : 0.55}
           toneMapped={false}
         />
-      </lineSegments>
+      ))}
 
-      {/* Soft outer halo — Axis only. The other nodes read cleanly as
-          wireframe glyphs without an extra sphere around them. */}
+      {/* Soft outer halo — Axis only, gives it the 'master neuron' aura. */}
       {isAxis && (
         <mesh ref={haloRef}>
           <sphereGeometry args={[haloSize, 18, 18]} />
           <meshBasicMaterial
             color={haloColor}
             transparent
-            opacity={0.12}
+            opacity={0.1}
             side={THREE.BackSide}
             depthWrite={false}
             toneMapped={false}

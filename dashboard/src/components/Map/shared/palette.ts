@@ -46,12 +46,13 @@ export const BG = '#ffffff'
 // Inspired by Minority Report / Blade Runner / Matrix UIs: deep navy canvas,
 // thin cyan strokes, amber accents for active state, monospace everywhere.
 // ---------------------------------------------------------------------------
-export const HUD_BG = '#03060f'          // deep navy — almost black
-export const HUD_BG_PANEL = '#0a1322'    // panel surface
-export const HUD_BORDER = '#1c2a45'      // panel borders
-export const HUD_BORDER_BRIGHT = '#3e5c8a'
-export const HUD_CYAN = '#00e6ff'        // primary signal — selection, data
+export const HUD_BG = '#040714'          // deep navy — almost black
+export const HUD_BG_PANEL = '#0c1428'    // panel surface
+export const HUD_BORDER = '#1f2a48'      // panel borders
+export const HUD_BORDER_BRIGHT = '#445a8c'
+export const HUD_CYAN = '#5ee0ff'        // primary signal — selection, data
 export const HUD_CYAN_DIM = '#3a8a9c'
+export const HUD_VIOLET = '#a685ff'      // neuron soma accent
 export const HUD_AMBER = '#ffaa3a'       // active / live indicator
 export const HUD_AMBER_DIM = '#a26a1f'
 export const HUD_TEXT = '#c8d6f0'        // primary text
