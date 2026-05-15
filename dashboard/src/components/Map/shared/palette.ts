@@ -10,7 +10,7 @@ import type { EcoNode, NodeKind } from '../../../hooks/useEcosystem'
 // Node core — grayscale ladder that walks from center outward.
 // Axis is almost black; agents, projects, and periphery each get their own
 // gray shade so the hierarchy is legible even without the pastel halos.
-export const CORE_AXIS = '#fff5c8' // glowing star-gold for the 3D map (was near-black)
+export const CORE_AXIS = '#1a1a14' // near-black with a warm tint
 export const CORE_AGENT = '#333333'
 export const CORE_PROJECT = '#5a5a5a'
 export const CORE_PERIPHERY = '#8a8a8a'
@@ -40,54 +40,6 @@ export const INK = '#1f1f1f'
 export const INK_MUTED = '#6b6b6b'
 export const INK_LINE = '#b8b8b8'
 export const BG = '#ffffff'
-
-// ---------------------------------------------------------------------------
-// HUD palette — sci-fi neon tokens used by the 3D map and its overlay panels.
-// Inspired by Minority Report / Blade Runner / Matrix UIs: deep navy canvas,
-// thin cyan strokes, amber accents for active state, monospace everywhere.
-// ---------------------------------------------------------------------------
-export const HUD_BG = '#040714'          // deep navy — almost black
-export const HUD_BG_PANEL = '#0c1428'    // panel surface
-export const HUD_BORDER = '#1f2a48'      // panel borders
-export const HUD_BORDER_BRIGHT = '#445a8c'
-export const HUD_CYAN = '#5ee0ff'        // primary signal — selection, data
-export const HUD_CYAN_DIM = '#3a8a9c'
-export const HUD_VIOLET = '#a685ff'      // neuron soma accent
-export const HUD_AMBER = '#ffaa3a'       // active / live indicator
-export const HUD_AMBER_DIM = '#a26a1f'
-export const HUD_TEXT = '#c8d6f0'        // primary text
-export const HUD_TEXT_DIM = '#6a7a98'
-export const HUD_TEXT_MUTED = '#3e4d6a'
-
-// ---------------------------------------------------------------------------
-// Cluster colour assignment — InfraNodus style. Each node inherits the
-// colour of the project that contains it; nodes shared by multiple
-// projects pick the first match. Axis gets the canonical amber. Pure
-// infrastructure nodes fall back to a kind-based hue.
-// ---------------------------------------------------------------------------
-export function clusterColorFor(
-  nodeId: string,
-  kind: NodeKind,
-  projects: { id: string; members: string[]; color?: string | null }[],
-): string {
-  if (nodeId === 'axis') return HUD_AMBER
-  // Node is itself a project: use its own colour
-  if (nodeId.startsWith('project:')) {
-    const pid = nodeId.slice('project:'.length)
-    const p = projects.find((x) => x.id === pid)
-    return p?.color ?? HUD_CYAN
-  }
-  // Inherit from the first project that contains this node
-  for (const p of projects) {
-    if (p.members.includes(nodeId)) return p.color ?? HUD_CYAN
-  }
-  // Fallback per kind
-  if (kind === 'agent') return HUD_CYAN
-  if (kind === 'provider') return HUD_VIOLET
-  if (kind === 'skill') return '#9cd9b5'
-  if (kind === 'channel') return '#eaa8a8'
-  return HUD_TEXT_DIM
-}
 
 // Legacy aliases so existing callers keep working.
 export const COLOR_AXIS = HALO_AXIS

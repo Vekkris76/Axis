@@ -32,6 +32,7 @@ import {
 } from './shared/layout'
 import { edgeType, type SimLink, type SimNode } from './shared/types'
 import { Inspector } from './shared/Inspector'
+import { ProjectRail } from './shared/ProjectRail'
 
 const WIDTH = 1200
 const HEIGHT = 800
@@ -680,4 +681,4 @@ function EdgePulse({
 }
 
 // Re-export so MapView can render these under its own layout
-export { Inspector }
+export { Inspector, ProjectRail }
