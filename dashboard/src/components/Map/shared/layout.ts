@@ -32,7 +32,7 @@ export const TIER_RADIUS_3D: Record<Tier, number> = {
   0: 0,
   1: 5.5,
   2: 10,
-  3: 14,
+  3: 12.5,
 }
 
 // Slight vertical separation in 3D so tiers read as *layers* when the camera

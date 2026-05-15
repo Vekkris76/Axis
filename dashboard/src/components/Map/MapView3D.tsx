@@ -666,9 +666,9 @@ function CubeShells() {
           new THREE.BoxGeometry(size, size, size),
         )
         // Subdivided grid for the "more divisions" look
-        const gridOp = 0.06 + (t - 1) * 0.02 // inner tier faintest
-        const silhouetteOp = 0.18 + (t - 1) * 0.18 // outer tier strongest
-        const silhouetteWidth = 0.8 + (t - 1) * 0.8
+        const gridOp = 0.08 + (t - 1) * 0.04 // inner tier faintest
+        const silhouetteOp = 0.28 + (t - 1) * 0.26 // outer tier strongest
+        const silhouetteWidth = 1 + (t - 1) * 1
         return (
           <group key={t}>
             {/* Subdivided grid face lines */}
