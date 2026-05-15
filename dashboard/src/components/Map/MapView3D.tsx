@@ -10,7 +10,7 @@
 // radiant aureole. Canvas is transparent so the parent's mist drifts
 // through.
 
-import { useMemo, useRef, Suspense } from 'react'
+import { useEffect, useMemo, useRef, Suspense } from 'react'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line, OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -705,30 +705,42 @@ function CubeShells() {
 // spheres with decreasing opacity fake a volumetric halo without a shader.
 // ---------------------------------------------------------------------------
 
-// Smoothly lerp the OrbitControls target (and pull the camera closer) when
-// a node is selected. When selection clears, drift back to the origin at
-// the default distance.
+// Animate the OrbitControls target + camera distance only on selection
+// changes. Once the animation converges we stop touching the camera so the
+// user's zoom/pan/orbit gestures are respected. Previously this ran every
+// frame and snapped the camera back to the default distance — the classic
+// 'spring-back' bug.
 function CameraFocus({ selectedPos }: { selectedPos: THREE.Vector3 | null }) {
   const camera = useThree((s) => s.camera)
   const controls = useThree((s) => s.controls) as OrbitControlsImpl | null
-  const restTarget = useMemo(() => new THREE.Vector3(0, 0, 0), [])
-  const restDist = 24
+  const animRef = useRef<{ target: THREE.Vector3; dist: number } | null>(null)
+
+  useEffect(() => {
+    if (selectedPos) {
+      animRef.current = { target: selectedPos.clone(), dist: 7 }
+    } else {
+      animRef.current = { target: new THREE.Vector3(0, 0, 0), dist: 24 }
+    }
+  }, [selectedPos])
 
   useFrame(() => {
-    if (!controls) return
-    const t = selectedPos ?? restTarget
-    // Lerp controls.target toward the desired point
-    controls.target.lerp(t, 0.08)
+    if (!controls || !animRef.current) return
+    const anim = animRef.current
+    controls.target.lerp(anim.target, 0.08)
 
-    // Adjust camera distance: closer when focusing, rest distance otherwise.
-    const desiredDist = selectedPos ? 7 : restDist
     const dir = new THREE.Vector3().subVectors(camera.position, controls.target)
     const curDist = dir.length() || 0.001
-    const nextDist = THREE.MathUtils.lerp(curDist, desiredDist, 0.06)
+    const nextDist = THREE.MathUtils.lerp(curDist, anim.dist, 0.06)
     dir.normalize().multiplyScalar(nextDist)
     camera.position.copy(controls.target).add(dir)
-
     controls.update()
+
+    if (
+      controls.target.distanceTo(anim.target) < 0.05 &&
+      Math.abs(curDist - anim.dist) < 0.1
+    ) {
+      animRef.current = null
+    }
   })
   return null
 }

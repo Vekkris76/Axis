@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import type { EcoNode, EcoProject } from '../../../hooks/useEcosystem'
-import { INK, INK_MUTED, nodeColor } from './palette'
+import { HALO_PROJECT, INK, INK_MUTED, nodeColor } from './palette'
 
 export function Inspector({
   node,
@@ -16,7 +16,7 @@ export function Inspector({
       key={node.id}
       initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: 1, y: 0 }}
-      className="pointer-events-none absolute top-4 left-4 max-w-xs rounded-xl border border-neutral-200 bg-white/90 px-5 py-4 shadow-sm backdrop-blur"
+      className="pointer-events-none absolute bottom-4 left-1/2 max-w-md -translate-x-1/2 rounded-xl border border-neutral-200 bg-white/90 px-5 py-4 shadow-sm backdrop-blur"
       style={{ color: INK }}
     >
       <div className="mb-1 flex items-center gap-2">
@@ -57,7 +57,7 @@ export function Inspector({
             >
               <span
                 className="h-1 w-1 rounded-full"
-                style={{ background: p.color ?? accent }}
+                style={{ background: HALO_PROJECT }}
               />
               {p.name}
             </span>

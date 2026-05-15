@@ -12,7 +12,8 @@ import { useGatewayHealth } from '../../hooks/useGatewayHealth'
 import { useEcosystem } from '../../hooks/useEcosystem'
 import { MapView2D } from './MapView2D'
 import { Inspector } from './shared/Inspector'
-import { ProjectRail } from './shared/ProjectRail'
+import { AgentHUD } from './shared/AgentHUD'
+import { ProjectsHUD } from './shared/ProjectsHUD'
 import { INK_LINE, INK_MUTED } from './shared/palette'
 
 // 3D view (and its three.js/drei/r3f deps) is code-split so the 2D path
@@ -121,13 +122,22 @@ export function MapView() {
         )}
 
         {data && (
-          <ProjectRail
-            projects={data.projects}
-            selected={selected}
-            onSelect={(nodeId) =>
-              setSelected((prev) => (prev === nodeId ? null : nodeId))
-            }
-          />
+          <>
+            <AgentHUD
+              nodes={data.nodes}
+              selected={selected}
+              onSelect={(id) =>
+                setSelected((prev) => (prev === id ? null : id))
+              }
+            />
+            <ProjectsHUD
+              projects={data.projects}
+              selected={selected}
+              onSelect={(nodeId) =>
+                setSelected((prev) => (prev === nodeId ? null : nodeId))
+              }
+            />
+          </>
         )}
 
         {displayedNode && data && (
@@ -136,7 +146,7 @@ export function MapView() {
 
         {mode === '2d' && (
           <div
-            className="pointer-events-none absolute top-4 right-4 flex flex-col items-end gap-1 font-mono text-[10px] uppercase tracking-[0.2em]"
+            className="pointer-events-none absolute bottom-4 right-4 flex flex-col items-end gap-1 font-mono text-[10px] uppercase tracking-[0.2em]"
             style={{ color: INK_MUTED }}
           >
             <EdgeLegend label="parent" kind="solid" weight={1.6} />
