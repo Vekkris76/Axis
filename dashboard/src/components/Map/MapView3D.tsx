@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, Suspense } from 'react'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line, OrbitControls } from '@react-three/drei'
+import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import * as THREE from 'three'
 
 // OrbitControls type — imported from drei indirectly via three-stdlib, but
@@ -23,7 +24,7 @@ type OrbitControlsImpl = {
   update: () => void
 }
 import type { EcoEdge, EcoNode, EcoProject, EdgeType } from '../../hooks/useEcosystem'
-import { edgeColor, HEX, nodeHex, nodeCoreHex, phaseFor } from './shared/palette'
+import { edgeColor, HEX, nodeHex, phaseFor } from './shared/palette'
 import {
   normalizedCentrality,
   TIER_RADIUS_3D,
@@ -31,17 +32,18 @@ import {
   type Tier,
 } from './shared/layout'
 
-// Base node size per kind in world units.
+// Base node size per kind in world units. Quantum-network look: every node
+// is an emissive orb, sized by structural importance.
 const BASE_SIZE: Record<string, number> = {
-  agent: 0.32,
-  project: 0.4,
-  skill: 0.22,
-  provider: 0.26,
-  channel: 0.22,
+  agent: 0.38,
+  project: 0.55,
+  skill: 0.24,
+  provider: 0.28,
+  channel: 0.24,
 }
 
 function baseSize(n: EcoNode): number {
-  if (n.id === 'axis') return 0.85
+  if (n.id === 'axis') return 1.2
   return BASE_SIZE[n.kind] ?? 0.22
 }
 
@@ -266,21 +268,18 @@ export function MapView3D({
     <div className="absolute inset-0" onClick={() => setSelected(null)}>
       <Canvas
         camera={{ position: [14, 8, 22], fov: 45, near: 0.1, far: 200 }}
-        gl={{ antialias: true, powerPreference: 'high-performance', alpha: true }}
+        gl={{ antialias: true, powerPreference: 'high-performance', alpha: false }}
         dpr={[1, 2]}
-        style={{ background: 'transparent' }}
+        style={{ background: '#06080d' }}
       >
-        {/* No color attach — transparent canvas lets the parent's animated
-            mist bleed through. Fog fades distant nodes toward white so the
-            depth cue still works. */}
-        <fog attach="fog" args={[HEX.bg, 32, 80]} />
+        <color attach="background" args={['#06080d']} />
+        <fog attach="fog" args={['#06080d', 28, 70]} />
 
         <Suspense fallback={null}>
-          <ambientLight intensity={0.95} />
-          <directionalLight position={[12, 18, 10]} intensity={0.3} />
+          <ambientLight intensity={0.35} />
+          <directionalLight position={[12, 18, 10]} intensity={0.4} />
 
-          <CubeShells />
-          <AxisAureole />
+          <Starfield />
 
           {/* Edges first so nodes render on top */}
           {edges.map((e) => {
@@ -340,6 +339,16 @@ export function MapView3D({
             autoRotateSpeed={0.35}
           />
           <CameraFocus selectedPos={selectedPos} />
+
+          <EffectComposer>
+            <Bloom
+              intensity={1.6}
+              luminanceThreshold={0.25}
+              luminanceSmoothing={0.85}
+              mipmapBlur
+              radius={0.85}
+            />
+          </EffectComposer>
         </Suspense>
       </Canvas>
     </div>
@@ -372,68 +381,55 @@ function Node3DShape({
 }) {
   const groupRef = useRef<THREE.Group>(null)
   const coreRef = useRef<THREE.Mesh>(null)
-  const shellRef = useRef<THREE.LineSegments>(null)
+  const haloRef = useRef<THREE.Mesh>(null)
   const haloColor = useMemo(() => nodeHex(node), [node])
-  const coreColor = useMemo(() => nodeCoreHex(node), [node])
   const isAxis = node.id === 'axis'
   const isProject = node.kind === 'project'
   const focused = hovered || selected
   const phase = phaseFor(node.id)
-  // Entry animation: stagger nodes in from the origin over ~1.5s total
   const entryDelay = (index / Math.max(total, 1)) * 0.9
   const entryDuration = 0.8
   const mountedAt = useRef<number | null>(null)
 
-  // Shell geometry depends on shape kind. Projects are spheres; everything
-  // else is a cube. Axis gets the crown.
-  const shellGeom = useMemo(() => {
-    const s = node.size * 2
-    if (isProject) {
-      return new THREE.EdgesGeometry(
-        new THREE.IcosahedronGeometry(node.size, 1),
-        18,
-      )
-    }
-    return new THREE.EdgesGeometry(new THREE.BoxGeometry(s, s, s))
-  }, [node.size, isProject])
-  const crownGeom = useMemo(() => {
-    if (!isAxis) return null
-    const s = node.size * 3.2
-    return new THREE.EdgesGeometry(new THREE.BoxGeometry(s, s, s))
-  }, [isAxis, node.size])
+  // Emissive intensity ladder — Axis is a small sun, projects glow as
+  // containers, agents glow strongly, periphery quietly.
+  const baseEmissive = isAxis ? 3.6 : isProject ? 1.6 : node.kind === 'agent' ? 1.4 : 0.9
+  // Halo (outer soft glow) sized relative to the core sphere
+  const haloSize = node.size * (isAxis ? 1.8 : 1.5)
 
   useFrame(({ clock }) => {
     const t = clock.elapsedTime
     if (mountedAt.current === null) mountedAt.current = t
 
-    // Entry animation: scale from 0 → 1 with easeOutBack-ish curve.
     if (groupRef.current) {
       const elapsed = t - (mountedAt.current ?? t) - entryDelay
       const p = Math.max(0, Math.min(1, elapsed / entryDuration))
-      // easeOutCubic
       const eased = 1 - Math.pow(1 - p, 3)
-      const scale = isAxis ? eased : eased
-      groupRef.current.scale.setScalar(scale)
+      groupRef.current.scale.setScalar(eased)
       groupRef.current.visible = p > 0
     }
 
-    if (shellRef.current) {
-      const period = 5 + phase * 2
-      const pulse = 0.6 + 0.4 * Math.sin((t / period + phase) * Math.PI * 2)
-      const mat = shellRef.current.material as THREE.LineBasicMaterial
-      const baseOp = focused ? 0.98 : node.active ? 0.85 : 0.45
-      // Softer dim — 0.5 instead of 0.22
-      const dim = dimmed ? 0.5 : 1
-      mat.opacity = baseOp * (0.75 + 0.25 * pulse) * dim
-      // Focus mode: tint the envelope gold when this node is the target
-      mat.color.set(focused ? HEX.focusGold : haloColor)
-    }
+    // Breathing pulse on the core emissive — stronger when the node is
+    // active (driven by the bridge's cascade) or focused.
+    const period = 4 + phase * 2
+    const breath = 0.7 + 0.3 * Math.sin((t / period + phase) * Math.PI * 2)
+    const activityBoost = (node.activity ?? 0) * 1.5
+    const focusBoost = focused ? 1.0 : 0
+    const dimMul = dimmed ? 0.35 : 1
+    const intensity =
+      (baseEmissive + activityBoost + focusBoost) * breath * dimMul
 
     if (coreRef.current) {
       const mat = coreRef.current.material as THREE.MeshStandardMaterial
-      mat.opacity = dimmed ? 0.6 : 1
-      mat.transparent = dimmed
-      if (isAxis) coreRef.current.rotation.y = t * 0.12
+      mat.emissiveIntensity = intensity
+      mat.color.set(focused ? HEX.focusGold : haloColor)
+      mat.emissive.set(focused ? HEX.focusGold : haloColor)
+      if (isAxis) coreRef.current.rotation.y = t * 0.15
+    }
+    if (haloRef.current) {
+      const mat = haloRef.current.material as THREE.MeshBasicMaterial
+      mat.opacity = (focused ? 0.28 : 0.16) * dimMul * (0.7 + 0.3 * breath)
+      mat.color.set(focused ? HEX.focusGold : haloColor)
     }
   })
 
@@ -453,66 +449,33 @@ function Node3DShape({
     },
   }
 
-  // Core is small relative to the wireframe shell: the shell is the visual
-  // envelope, the core is the mark inside it.
-  const coreSize = isAxis ? node.size * 0.78 : isProject ? node.size * 0.5 : node.size * 0.44
-
   return (
     <group ref={groupRef} position={node.position}>
-      {/* Grayscale solid core — sphere for projects, cube for everyone else */}
+      {/* Emissive core orb — this is what bloom picks up */}
       <mesh ref={coreRef} {...handlers}>
-        {isProject ? (
-          <sphereGeometry args={[coreSize, 24, 24]} />
-        ) : (
-          <boxGeometry args={[coreSize, coreSize, coreSize]} />
-        )}
+        <sphereGeometry args={[node.size, 32, 32]} />
         <meshStandardMaterial
-          color={coreColor}
-          roughness={isAxis ? 0.2 : 0.55}
-          metalness={isAxis ? 0.0 : 0.08}
-          emissive={isAxis ? HEX.axisGold : '#000000'}
-          emissiveIntensity={isAxis ? 1.4 : 0}
+          color={haloColor}
+          emissive={haloColor}
+          emissiveIntensity={baseEmissive}
+          roughness={0.35}
+          metalness={0}
+          toneMapped={false}
         />
       </mesh>
 
-      {/* Project bubble: filled translucent shell so projects read as
-          volumes (containers) instead of just outlines like agents. */}
-      {isProject && (
-        <mesh>
-          <icosahedronGeometry args={[node.size * 0.95, 1]} />
-          <meshStandardMaterial
-            color={haloColor}
-            transparent
-            opacity={0.22}
-            roughness={0.7}
-            metalness={0}
-            depthWrite={false}
-          />
-        </mesh>
-      )}
-
-      {/* Pastel wireframe shell — the family accent */}
-      <lineSegments ref={shellRef} geometry={shellGeom}>
-        <lineBasicMaterial
+      {/* Soft outer halo — back-face translucent sphere, additive bloom-fed */}
+      <mesh ref={haloRef}>
+        <sphereGeometry args={[haloSize, 24, 24]} />
+        <meshBasicMaterial
           color={haloColor}
           transparent
-          opacity={focused ? 0.95 : 0.7}
+          opacity={0.16}
+          side={THREE.BackSide}
+          depthWrite={false}
+          toneMapped={false}
         />
-      </lineSegments>
-
-      {/* Axis crown — wireframe sphere in deep gold */}
-      {isAxis && crownGeom && (
-        <lineSegments geometry={crownGeom}>
-          <lineBasicMaterial color={HEX.axisGold} transparent opacity={0.5} />
-        </lineSegments>
-      )}
-
-      {/* Focused-only outline: a second trace of the shell in focus gold */}
-      {!isAxis && focused && (
-        <lineSegments geometry={shellGeom}>
-          <lineBasicMaterial color={HEX.focusGold} transparent opacity={0.75} />
-        </lineSegments>
-      )}
+      </mesh>
 
       {(isAxis || focused) && (
         <Html
@@ -667,77 +630,51 @@ function EdgePulse3D({
 // eye to read the onion structure.
 // ---------------------------------------------------------------------------
 
-// 12 edges of an axis-aligned cube of side `size`, centered on origin.
-// Returns an array of [start, end] pairs in world coordinates.
-function cubeEdges(size: number): [THREE.Vector3, THREE.Vector3][] {
-  const h = size / 2
-  const v = [
-    new THREE.Vector3(-h, -h, -h),
-    new THREE.Vector3(h, -h, -h),
-    new THREE.Vector3(h, h, -h),
-    new THREE.Vector3(-h, h, -h),
-    new THREE.Vector3(-h, -h, h),
-    new THREE.Vector3(h, -h, h),
-    new THREE.Vector3(h, h, h),
-    new THREE.Vector3(-h, h, h),
-  ]
-  const idx: [number, number][] = [
-    [0, 1], [1, 2], [2, 3], [3, 0],
-    [4, 5], [5, 6], [6, 7], [7, 4],
-    [0, 4], [1, 5], [2, 6], [3, 7],
-  ]
-  return idx.map(([a, b]) => [v[a], v[b]])
-}
+// Star field — a few thousand small points scattered in a large box around
+// the origin. They sit beyond the fog plane so they read as a still
+// backdrop. Tiny circular sprites with additive blending; bloom picks up
+// the brightest ones.
+function Starfield({
+  count = 1400,
+  radius = 90,
+}: {
+  count?: number
+  radius?: number
+}) {
+  const points = useMemo(() => {
+    const arr = new Float32Array(count * 3)
+    for (let i = 0; i < count; i++) {
+      // Distribute in a thick spherical shell so density doesn't crowd centre
+      const r = radius * (0.55 + Math.random() * 0.45)
+      const u = Math.random() * 2 - 1
+      const theta = Math.random() * Math.PI * 2
+      const s = Math.sqrt(1 - u * u)
+      arr[i * 3] = r * s * Math.cos(theta)
+      arr[i * 3 + 1] = r * u * 0.6 // squash vertically — feels like a galaxy disc
+      arr[i * 3 + 2] = r * s * Math.sin(theta)
+    }
+    return arr
+  }, [count, radius])
 
-function CubeShells() {
-  // Concentric tier shells. Inner tiers use cheap wireframe with low
-  // opacity so they recede; the outermost tier uses drei <Line> with a
-  // real pixel-width stroke so it actually reads against a white canvas.
-  const outerEdges = useMemo(() => cubeEdges(TIER_RADIUS_3D[3] * 2), [])
+  const geom = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(points, 3))
+    return g
+  }, [points])
+
   return (
-    <group>
-      {([1, 2] as Tier[]).map((t) => {
-        const r = TIER_RADIUS_3D[t]
-        const size = r * 2
-        const silhouette = new THREE.EdgesGeometry(
-          new THREE.BoxGeometry(size, size, size),
-        )
-        const gridOp = 0.08 + (t - 1) * 0.04
-        const silhouetteOp = 0.35 + (t - 1) * 0.25
-        return (
-          <group key={t}>
-            <mesh>
-              <boxGeometry args={[size, size, size, 4, 4, 4]} />
-              <meshBasicMaterial
-                color={HEX.inkMuted}
-                transparent
-                opacity={gridOp}
-                wireframe
-                depthWrite={false}
-              />
-            </mesh>
-            <lineSegments geometry={silhouette}>
-              <lineBasicMaterial
-                color={HEX.ink}
-                transparent
-                opacity={silhouetteOp}
-              />
-            </lineSegments>
-          </group>
-        )
-      })}
-      {/* Outermost tier — real thick-line cube so it anchors the composition */}
-      {outerEdges.map(([a, b], i) => (
-        <Line
-          key={`outer-${i}`}
-          points={[a, b]}
-          color={HEX.ink}
-          lineWidth={3}
-          transparent
-          opacity={0.9}
-        />
-      ))}
-    </group>
+    <points geometry={geom}>
+      <pointsMaterial
+        color="#e8eef8"
+        size={0.18}
+        sizeAttenuation
+        transparent
+        opacity={0.85}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+        toneMapped={false}
+      />
+    </points>
   )
 }
 
@@ -786,90 +723,3 @@ function CameraFocus({ selectedPos }: { selectedPos: THREE.Vector3 | null }) {
   return null
 }
 
-function AxisAureole() {
-  const ref = useRef<THREE.Group>(null)
-  const rayRef = useRef<THREE.Group>(null)
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime
-    if (ref.current) {
-      const s = 1 + Math.sin(t * 0.25) * 0.05
-      ref.current.scale.setScalar(s)
-    }
-    if (rayRef.current) {
-      // Slow shimmer of the spike rays — they pulse independently of breathing
-      const a = 0.55 + 0.25 * Math.sin(t * 0.6)
-      rayRef.current.scale.setScalar(a + 0.4)
-      // Slowly spin the ray group for extra "alive star" feel
-      rayRef.current.rotation.y = t * 0.05
-      rayRef.current.rotation.x = t * 0.03
-    }
-  })
-  // 6 spike-ray endpoints (±X, ±Y, ±Z) reaching out to ~tier 1
-  const rayLen = 4.2
-  const rays: [THREE.Vector3, THREE.Vector3][] = [
-    [new THREE.Vector3(-rayLen, 0, 0), new THREE.Vector3(rayLen, 0, 0)],
-    [new THREE.Vector3(0, -rayLen, 0), new THREE.Vector3(0, rayLen, 0)],
-    [new THREE.Vector3(0, 0, -rayLen), new THREE.Vector3(0, 0, rayLen)],
-  ]
-  return (
-    <>
-      {/* Volumetric back-face glow halos */}
-      <group ref={ref}>
-        <mesh>
-          <sphereGeometry args={[1.3, 32, 24]} />
-          <meshBasicMaterial
-            color={HEX.axis}
-            transparent
-            opacity={0.55}
-            side={THREE.BackSide}
-            depthWrite={false}
-          />
-        </mesh>
-        <mesh>
-          <sphereGeometry args={[2.2, 32, 24]} />
-          <meshBasicMaterial
-            color={HEX.axis}
-            transparent
-            opacity={0.28}
-            side={THREE.BackSide}
-            depthWrite={false}
-          />
-        </mesh>
-        <mesh>
-          <sphereGeometry args={[3.4, 32, 24]} />
-          <meshBasicMaterial
-            color={HEX.axisGold}
-            transparent
-            opacity={0.14}
-            side={THREE.BackSide}
-            depthWrite={false}
-          />
-        </mesh>
-        <mesh>
-          <sphereGeometry args={[5.0, 32, 24]} />
-          <meshBasicMaterial
-            color={HEX.axisGold}
-            transparent
-            opacity={0.06}
-            side={THREE.BackSide}
-            depthWrite={false}
-          />
-        </mesh>
-      </group>
-
-      {/* Star spike rays — three orthogonal lines crossing at origin */}
-      <group ref={rayRef}>
-        {rays.map(([a, b], i) => (
-          <Line
-            key={i}
-            points={[a, b]}
-            color={HEX.axisGold}
-            lineWidth={2.2}
-            transparent
-            opacity={0.7}
-          />
-        ))}
-      </group>
-    </>
-  )
-}
