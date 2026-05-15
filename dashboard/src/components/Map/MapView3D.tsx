@@ -25,13 +25,13 @@ type OrbitControlsImpl = {
 }
 import type { EcoEdge, EcoNode, EcoProject, EdgeType } from '../../hooks/useEcosystem'
 import {
-  edgeColor,
+  clusterColorFor,
   HEX,
-  nodeHex,
   phaseFor,
   HUD_BG,
   HUD_CYAN,
   HUD_AMBER,
+  HUD_TEXT_DIM,
 } from './shared/palette'
 import {
   normalizedCentrality,
@@ -265,18 +265,14 @@ export function MapView3D({
     return s
   }, [focusedId, edges])
 
-  // Edges drawn = ONLY those touching the focused node, deduplicated by
-  // unordered pair (parent+depends_on between the same two nodes collapse
-  // into a single line — they were stacking and creating odd geometry).
-  // Edge type used for styling is the strongest relation: parent >
-  // depends_on > serves > collaborates_with > link.
-  const focusedEdges = useMemo<EcoEdge[]>(() => {
-    if (!focusedId) return []
+  // All edges deduplicated by unordered pair (parent+depends_on between
+  // the same two nodes collapse into one line). InfraNodus style — every
+  // edge is drawn faintly at rest; the focused node's edges brighten.
+  const dedupEdges = useMemo<EcoEdge[]>(() => {
     const rank = (t?: string): number =>
       t === 'parent' ? 4 : t === 'depends_on' ? 3 : t === 'serves' ? 2 : t === 'collaborates_with' ? 1 : 0
     const byPair = new Map<string, EcoEdge>()
     for (const e of edges) {
-      if (e.from !== focusedId && e.to !== focusedId) continue
       const key = [e.from, e.to].sort().join('|')
       const existing = byPair.get(key)
       if (!existing || rank(e.type) > rank(existing.type)) {
@@ -284,7 +280,19 @@ export function MapView3D({
       }
     }
     return Array.from(byPair.values())
-  }, [focusedId, edges])
+  }, [edges])
+
+  // Cluster colour map: every node id → its cluster colour (project it
+  // belongs to, project's own colour if it IS a project, Axis amber,
+  // else kind-based fallback).
+  const clusterColorById = useMemo(() => {
+    const m = new Map<string, string>()
+    const projects = ecosystem?.projects ?? []
+    for (const n of positioned) {
+      m.set(n.id, clusterColorFor(n.id, n.kind, projects))
+    }
+    return m
+  }, [positioned, ecosystem?.projects])
 
   // Camera target: if a node is selected, center on it and pull in. The
   // CameraController inside the Canvas does the actual lerping.
@@ -312,14 +320,17 @@ export function MapView3D({
           <Starfield />
           <DriftParticles />
 
-          {/* Edges are only drawn for the focused node's neighbourhood —
-              the map at rest is just points. Multiple semantic relations
-              between the same pair collapse into one line so geometry
-              stays clean. */}
-          {focusedEdges.map((e) => {
+          {/* All edges — InfraNodus look: faint thin lines for the whole
+              network at rest, brightened around the focused node. Colour
+              inherits from the source node's cluster. */}
+          {dedupEdges.map((e) => {
             const a = posById.get(e.from)
             const b = posById.get(e.to)
             if (!a || !b) return null
+            const focused =
+              focusedId !== null &&
+              (e.from === focusedId || e.to === focusedId)
+            const colorA = clusterColorById.get(e.from) ?? HUD_TEXT_DIM
             return (
               <Edge3D
                 key={`${e.from}-${e.to}`}
@@ -328,10 +339,10 @@ export function MapView3D({
                 type={(e.type ?? 'link') as EdgeType}
                 active={e.active}
                 activity={e.activity ?? 0}
-                focused={true}
-                dimmed={false}
+                focused={focused}
+                dimmed={focusedId !== null && !focused}
                 phase={phaseFor(`${e.from}-${e.to}`)}
-                restingColor={edgeColor(a.kind, a.id, b.kind, b.id)}
+                restingColor={colorA}
               />
             )
           })}
@@ -345,6 +356,7 @@ export function MapView3D({
               hovered={hovered === n.id}
               selected={selected === n.id}
               dimmed={related !== null && !related.has(n.id)}
+              clusterColor={clusterColorById.get(n.id) ?? HUD_CYAN}
               onHover={(h) => setHovered(h ? n.id : null)}
               onSelect={() => {
                 setSelected((prev) => (prev === n.id ? null : n.id))
@@ -395,6 +407,7 @@ function Node3DShape({
   hovered,
   selected,
   dimmed,
+  clusterColor,
   onHover,
   onSelect,
 }: {
@@ -404,13 +417,14 @@ function Node3DShape({
   hovered: boolean
   selected: boolean
   dimmed: boolean
+  clusterColor: string
   onHover: (h: boolean) => void
   onSelect: () => void
 }) {
   const groupRef = useRef<THREE.Group>(null)
   const coreRef = useRef<THREE.Mesh>(null)
   const haloRef = useRef<THREE.Mesh>(null)
-  const haloColor = useMemo(() => nodeHex(node), [node])
+  const haloColor = clusterColor
   const isAxis = node.id === 'axis'
   const isProject = node.kind === 'project'
   const focused = hovered || selected
@@ -421,7 +435,7 @@ function Node3DShape({
 
   // Emissive intensity ladder — kept modest so points stay crisp; the
   // density of connections, not the brightness, carries the composition.
-  const baseEmissive = isAxis ? 2.4 : isProject ? 1.1 : node.kind === 'agent' ? 1.0 : 0.7
+  const baseEmissive = isAxis ? 2.6 : isProject ? 1.2 : node.kind === 'agent' ? 1.0 : 0.6
   // Halo (outer soft glow) sized relative to the core sphere
   const haloSize = node.size * (isAxis ? 2.6 : 1.8)
 
@@ -477,89 +491,40 @@ function Node3DShape({
     },
   }
 
-  // Neuron metaphor: every node is a small emissive soma + an array of
-  // thin dendrite filaments radiating outwards. Axis has many more
-  // dendrites and they reach further so it reads as the "supreme
-  // neuron". Deterministic per node.id so the dendrites are stable
-  // across re-renders.
-  const dendrites = useMemo(() => {
-    // Stable per-node RNG (linear congruential) seeded from node.id
-    let seed = 0
-    for (let i = 0; i < node.id.length; i++) seed = (seed * 31 + node.id.charCodeAt(i)) | 0
-    const rng = () => {
-      seed = (seed * 1664525 + 1013904223) | 0
-      return ((seed >>> 0) % 100000) / 100000
-    }
-    const count = isAxis ? 28 : isProject ? 14 : node.kind === 'agent' ? 12 : 8
-    const lenBase = isAxis ? 2.4 : isProject ? 1.4 : 1.0
-    const lines: { points: THREE.Vector3[]; thick: number }[] = []
-    for (let i = 0; i < count; i++) {
-      // Random direction on the sphere
-      const u = rng() * 2 - 1
-      const theta = rng() * Math.PI * 2
-      const s = Math.sqrt(1 - u * u)
-      const dir = new THREE.Vector3(
-        s * Math.cos(theta),
-        u,
-        s * Math.sin(theta),
-      )
-      // Length varies — some dendrites are short, some reach far
-      const len = lenBase * (0.55 + rng() * 0.9)
-      // Slight curve: bend mid-point a little perpendicular to dir
-      const mid = dir.clone().multiplyScalar(len * 0.55)
-      const perp = new THREE.Vector3(-dir.z, rng() * 0.4 - 0.2, dir.x)
-        .normalize()
-        .multiplyScalar(len * 0.18 * (rng() - 0.5))
-      mid.add(perp)
-      const end = dir.clone().multiplyScalar(len)
-      // Three-point curve sampled at 6 segments — feels organic
-      const curve = new THREE.QuadraticBezierCurve3(
-        new THREE.Vector3(0, 0, 0),
-        mid,
-        end,
-      )
-      lines.push({ points: curve.getPoints(6), thick: 0.6 + rng() * 0.7 })
-    }
-    return lines
-  }, [node.id, node.kind, isAxis, isProject])
+  // Decide whether this node gets a persistent label. InfraNodus shows
+  // labels for the most influential nodes by default; the rest reveal on
+  // hover/select. Heuristic: Axis + every project + active agents.
+  const showLabel =
+    isAxis ||
+    isProject ||
+    (node.kind === 'agent' && node.active) ||
+    focused
 
   return (
     <group ref={groupRef} position={node.position}>
-      {/* Soma — small emissive sphere; the neuron's body. */}
+      {/* Solid emissive sphere — the InfraNodus "dot". Size is set by
+          the layout (already scaled by centrality); the colour comes
+          from the project cluster. */}
       <mesh ref={coreRef} {...handlers}>
-        <sphereGeometry args={[node.size * 0.65, 20, 20]} />
+        <sphereGeometry args={[node.size, 20, 20]} />
         <meshStandardMaterial
           color={haloColor}
           emissive={haloColor}
-          emissiveIntensity={baseEmissive * 1.1}
-          roughness={0.35}
+          emissiveIntensity={focused ? baseEmissive * 1.8 : baseEmissive}
+          roughness={0.4}
           metalness={0}
           toneMapped={false}
         />
       </mesh>
 
-      {/* Dendrites — thin curved filaments radiating from the soma.
-          Drawn with drei <Line> so they have real pixel-width on WebGL. */}
-      {dendrites.map((d, i) => (
-        <Line
-          key={i}
-          points={d.points}
-          color={focused ? HUD_AMBER : haloColor}
-          lineWidth={d.thick * (focused ? 1.6 : 1)}
-          transparent
-          opacity={focused ? 0.85 : 0.55}
-          toneMapped={false}
-        />
-      ))}
-
-      {/* Soft outer halo — Axis only, gives it the 'master neuron' aura. */}
+      {/* Soft outer halo — Axis only, marks the hub. */}
       {isAxis && (
         <mesh ref={haloRef}>
           <sphereGeometry args={[haloSize, 18, 18]} />
           <meshBasicMaterial
             color={haloColor}
             transparent
-            opacity={0.1}
+            opacity={0.12}
             side={THREE.BackSide}
             depthWrite={false}
             toneMapped={false}
@@ -567,9 +532,9 @@ function Node3DShape({
         </mesh>
       )}
 
-      {(isAxis || focused) && (
+      {showLabel && (
         <Html
-          position={[0, -node.size - 0.45, 0]}
+          position={[0, -node.size - 0.35, 0]}
           center
           distanceFactor={14}
           occlude={false}
@@ -577,23 +542,24 @@ function Node3DShape({
         >
           <div className="select-none text-center">
             <div
-              className="font-mono text-[11px] uppercase tracking-[0.28em]"
+              className="font-mono uppercase"
               style={{
-                color: focused ? HUD_AMBER : HUD_CYAN,
-                fontWeight: 500,
-                textShadow: `0 0 8px ${focused ? HUD_AMBER : HUD_CYAN}`,
+                color: focused
+                  ? HUD_AMBER
+                  : isAxis
+                    ? haloColor
+                    : haloColor,
+                fontSize: isAxis ? 12 : 10,
+                letterSpacing: isAxis ? '0.3em' : '0.22em',
+                fontWeight: isAxis ? 600 : 500,
+                textShadow: focused
+                  ? `0 0 8px ${HUD_AMBER}`
+                  : `0 0 6px ${haloColor}99`,
+                opacity: dimmed ? 0.35 : 1,
               }}
             >
               {node.label}
             </div>
-            {node.sublabel && (
-              <div
-                className="font-mono text-[8px] uppercase tracking-[0.22em]"
-                style={{ color: '#6a7a98', marginTop: 2 }}
-              >
-                {node.sublabel.length > 48 ? node.sublabel.slice(0, 46) + '…' : node.sublabel}
-              </div>
-            )}
           </div>
         </Html>
       )}
@@ -643,11 +609,12 @@ function Edge3D({
     return curve.getPoints(24)
   }, [a.position, b.position, type])
 
-  // Constellation look: edges are thin filaments; the network density does
-  // the heavy lifting. Focused edges still bump up for selection feedback.
-  const base = focused ? 0.95 : active ? (type === 'parent' ? 0.6 : 0.42) : 0.28
-  const opacity = dimmed ? base * 0.35 : base
-  const lineWidth = type === 'parent' ? (focused ? 1.8 : 1.0) : focused ? 1.4 : 0.75
+  // InfraNodus look: faint thin filaments at rest; the focused subnet
+  // brightens. Edge type still subtly affects weight (parent edges read
+  // a touch stronger).
+  const base = focused ? 0.95 : active ? (type === 'parent' ? 0.42 : 0.28) : 0.18
+  const opacity = dimmed ? base * 0.3 : base
+  const lineWidth = focused ? 1.4 : 0.6
   const dashed = type === 'collaborates_with' || type === 'serves'
 
   return (
