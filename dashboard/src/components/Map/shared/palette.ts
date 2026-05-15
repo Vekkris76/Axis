@@ -10,7 +10,7 @@ import type { EcoNode, NodeKind } from '../../../hooks/useEcosystem'
 // Node core — grayscale ladder that walks from center outward.
 // Axis is almost black; agents, projects, and periphery each get their own
 // gray shade so the hierarchy is legible even without the pastel halos.
-export const CORE_AXIS = '#1a1a14' // near-black with a warm tint
+export const CORE_AXIS = '#fff5c8' // glowing star-gold for the 3D map (was near-black)
 export const CORE_AGENT = '#333333'
 export const CORE_PROJECT = '#5a5a5a'
 export const CORE_PERIPHERY = '#8a8a8a'

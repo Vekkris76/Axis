@@ -468,10 +468,28 @@ function Node3DShape({
         )}
         <meshStandardMaterial
           color={coreColor}
-          roughness={0.55}
-          metalness={isAxis ? 0.45 : 0.08}
+          roughness={isAxis ? 0.2 : 0.55}
+          metalness={isAxis ? 0.0 : 0.08}
+          emissive={isAxis ? HEX.axisGold : '#000000'}
+          emissiveIntensity={isAxis ? 1.4 : 0}
         />
       </mesh>
+
+      {/* Project bubble: filled translucent shell so projects read as
+          volumes (containers) instead of just outlines like agents. */}
+      {isProject && (
+        <mesh>
+          <icosahedronGeometry args={[node.size * 0.95, 1]} />
+          <meshStandardMaterial
+            color={haloColor}
+            transparent
+            opacity={0.22}
+            roughness={0.7}
+            metalness={0}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
 
       {/* Pastel wireframe shell — the family accent */}
       <lineSegments ref={shellRef} geometry={shellGeom}>
@@ -649,33 +667,47 @@ function EdgePulse3D({
 // eye to read the onion structure.
 // ---------------------------------------------------------------------------
 
+// 12 edges of an axis-aligned cube of side `size`, centered on origin.
+// Returns an array of [start, end] pairs in world coordinates.
+function cubeEdges(size: number): [THREE.Vector3, THREE.Vector3][] {
+  const h = size / 2
+  const v = [
+    new THREE.Vector3(-h, -h, -h),
+    new THREE.Vector3(h, -h, -h),
+    new THREE.Vector3(h, h, -h),
+    new THREE.Vector3(-h, h, -h),
+    new THREE.Vector3(-h, -h, h),
+    new THREE.Vector3(h, -h, h),
+    new THREE.Vector3(h, h, h),
+    new THREE.Vector3(-h, h, h),
+  ]
+  const idx: [number, number][] = [
+    [0, 1], [1, 2], [2, 3], [3, 0],
+    [4, 5], [5, 6], [6, 7], [7, 4],
+    [0, 4], [1, 5], [2, 6], [3, 7],
+  ]
+  return idx.map(([a, b]) => [v[a], v[b]])
+}
+
 function CubeShells() {
-  // Concentric wireframe cubes. Two passes per tier:
-  //   1) A subdivided grid (4×4×4) with low opacity — the "paper grid"
-  //      texture that adds more divisions and reads as structure.
-  //   2) The outer 12 edges at higher opacity — the hard silhouette.
-  // Outer tiers get progressively bolder silhouettes so the outermost cube
-  // is the darkest and anchors the composition; inner tiers recede.
+  // Concentric tier shells. Inner tiers use cheap wireframe with low
+  // opacity so they recede; the outermost tier uses drei <Line> with a
+  // real pixel-width stroke so it actually reads against a white canvas.
+  const outerEdges = useMemo(() => cubeEdges(TIER_RADIUS_3D[3] * 2), [])
   return (
     <group>
-      {([1, 2, 3] as Tier[]).map((t) => {
+      {([1, 2] as Tier[]).map((t) => {
         const r = TIER_RADIUS_3D[t]
         const size = r * 2
-        // Outer silhouette: just the 12 corner edges
         const silhouette = new THREE.EdgesGeometry(
           new THREE.BoxGeometry(size, size, size),
         )
-        // Subdivided grid for the "more divisions" look
-        const gridOp = 0.08 + (t - 1) * 0.04 // inner tier faintest
-        const silhouetteOp = 0.28 + (t - 1) * 0.26 // outer tier strongest
-        const silhouetteWidth = 1 + (t - 1) * 1
+        const gridOp = 0.08 + (t - 1) * 0.04
+        const silhouetteOp = 0.35 + (t - 1) * 0.25
         return (
           <group key={t}>
-            {/* Subdivided grid face lines */}
             <mesh>
-              <boxGeometry
-                args={[size, size, size, 4, 4, 4]}
-              />
+              <boxGeometry args={[size, size, size, 4, 4, 4]} />
               <meshBasicMaterial
                 color={HEX.inkMuted}
                 transparent
@@ -684,18 +716,27 @@ function CubeShells() {
                 depthWrite={false}
               />
             </mesh>
-            {/* Outer silhouette — crisper and darker for outer tiers */}
             <lineSegments geometry={silhouette}>
               <lineBasicMaterial
                 color={HEX.ink}
                 transparent
                 opacity={silhouetteOp}
-                linewidth={silhouetteWidth}
               />
             </lineSegments>
           </group>
         )
       })}
+      {/* Outermost tier — real thick-line cube so it anchors the composition */}
+      {outerEdges.map(([a, b], i) => (
+        <Line
+          key={`outer-${i}`}
+          points={[a, b]}
+          color={HEX.ink}
+          lineWidth={3}
+          transparent
+          opacity={0.9}
+        />
+      ))}
     </group>
   )
 }
@@ -747,45 +788,88 @@ function CameraFocus({ selectedPos }: { selectedPos: THREE.Vector3 | null }) {
 
 function AxisAureole() {
   const ref = useRef<THREE.Group>(null)
+  const rayRef = useRef<THREE.Group>(null)
   useFrame(({ clock }) => {
-    if (!ref.current) return
     const t = clock.elapsedTime
-    // Gentle breathing — ±4% scale, very slow
-    const s = 1 + Math.sin(t * 0.25) * 0.04
-    ref.current.scale.setScalar(s)
+    if (ref.current) {
+      const s = 1 + Math.sin(t * 0.25) * 0.05
+      ref.current.scale.setScalar(s)
+    }
+    if (rayRef.current) {
+      // Slow shimmer of the spike rays — they pulse independently of breathing
+      const a = 0.55 + 0.25 * Math.sin(t * 0.6)
+      rayRef.current.scale.setScalar(a + 0.4)
+      // Slowly spin the ray group for extra "alive star" feel
+      rayRef.current.rotation.y = t * 0.05
+      rayRef.current.rotation.x = t * 0.03
+    }
   })
+  // 6 spike-ray endpoints (±X, ±Y, ±Z) reaching out to ~tier 1
+  const rayLen = 4.2
+  const rays: [THREE.Vector3, THREE.Vector3][] = [
+    [new THREE.Vector3(-rayLen, 0, 0), new THREE.Vector3(rayLen, 0, 0)],
+    [new THREE.Vector3(0, -rayLen, 0), new THREE.Vector3(0, rayLen, 0)],
+    [new THREE.Vector3(0, 0, -rayLen), new THREE.Vector3(0, 0, rayLen)],
+  ]
   return (
-    <group ref={ref}>
-      <mesh>
-        <sphereGeometry args={[1.5, 32, 24]} />
-        <meshBasicMaterial
-          color={HEX.axis}
-          transparent
-          opacity={0.12}
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
-      </mesh>
-      <mesh>
-        <sphereGeometry args={[2.5, 32, 24]} />
-        <meshBasicMaterial
-          color={HEX.axis}
-          transparent
-          opacity={0.06}
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
-      </mesh>
-      <mesh>
-        <sphereGeometry args={[4, 32, 24]} />
-        <meshBasicMaterial
-          color={HEX.axisGold}
-          transparent
-          opacity={0.025}
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
-      </mesh>
-    </group>
+    <>
+      {/* Volumetric back-face glow halos */}
+      <group ref={ref}>
+        <mesh>
+          <sphereGeometry args={[1.3, 32, 24]} />
+          <meshBasicMaterial
+            color={HEX.axis}
+            transparent
+            opacity={0.55}
+            side={THREE.BackSide}
+            depthWrite={false}
+          />
+        </mesh>
+        <mesh>
+          <sphereGeometry args={[2.2, 32, 24]} />
+          <meshBasicMaterial
+            color={HEX.axis}
+            transparent
+            opacity={0.28}
+            side={THREE.BackSide}
+            depthWrite={false}
+          />
+        </mesh>
+        <mesh>
+          <sphereGeometry args={[3.4, 32, 24]} />
+          <meshBasicMaterial
+            color={HEX.axisGold}
+            transparent
+            opacity={0.14}
+            side={THREE.BackSide}
+            depthWrite={false}
+          />
+        </mesh>
+        <mesh>
+          <sphereGeometry args={[5.0, 32, 24]} />
+          <meshBasicMaterial
+            color={HEX.axisGold}
+            transparent
+            opacity={0.06}
+            side={THREE.BackSide}
+            depthWrite={false}
+          />
+        </mesh>
+      </group>
+
+      {/* Star spike rays — three orthogonal lines crossing at origin */}
+      <group ref={rayRef}>
+        {rays.map(([a, b], i) => (
+          <Line
+            key={i}
+            points={[a, b]}
+            color={HEX.axisGold}
+            lineWidth={2.2}
+            transparent
+            opacity={0.7}
+          />
+        ))}
+      </group>
+    </>
   )
 }
