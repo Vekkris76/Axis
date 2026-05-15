@@ -41,6 +41,23 @@ export const INK_MUTED = '#6b6b6b'
 export const INK_LINE = '#b8b8b8'
 export const BG = '#ffffff'
 
+// ---------------------------------------------------------------------------
+// HUD palette — sci-fi neon tokens used by the 3D map and its overlay panels.
+// Inspired by Minority Report / Blade Runner / Matrix UIs: deep navy canvas,
+// thin cyan strokes, amber accents for active state, monospace everywhere.
+// ---------------------------------------------------------------------------
+export const HUD_BG = '#03060f'          // deep navy — almost black
+export const HUD_BG_PANEL = '#0a1322'    // panel surface
+export const HUD_BORDER = '#1c2a45'      // panel borders
+export const HUD_BORDER_BRIGHT = '#3e5c8a'
+export const HUD_CYAN = '#00e6ff'        // primary signal — selection, data
+export const HUD_CYAN_DIM = '#3a8a9c'
+export const HUD_AMBER = '#ffaa3a'       // active / live indicator
+export const HUD_AMBER_DIM = '#a26a1f'
+export const HUD_TEXT = '#c8d6f0'        // primary text
+export const HUD_TEXT_DIM = '#6a7a98'
+export const HUD_TEXT_MUTED = '#3e4d6a'
+
 // Legacy aliases so existing callers keep working.
 export const COLOR_AXIS = HALO_AXIS
 export const COLOR_CODEX = HALO_CODEX

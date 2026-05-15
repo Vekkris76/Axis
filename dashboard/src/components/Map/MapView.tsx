@@ -12,8 +12,17 @@ import { useGatewayHealth } from '../../hooks/useGatewayHealth'
 import { useEcosystem } from '../../hooks/useEcosystem'
 import { MapView2D } from './MapView2D'
 import { Inspector } from './shared/Inspector'
-import { ProjectRail } from './shared/ProjectRail'
-import { INK_LINE, INK_MUTED } from './shared/palette'
+import { AgentHUD } from './shared/AgentHUD'
+import { ProjectsHUD } from './shared/ProjectsHUD'
+import {
+  HUD_AMBER,
+  HUD_BG,
+  HUD_BORDER,
+  HUD_CYAN,
+  HUD_TEXT,
+  HUD_TEXT_DIM,
+  HUD_TEXT_MUTED,
+} from './shared/palette'
 
 // 3D view (and its three.js/drei/r3f deps) is code-split so the 2D path
 // doesn't pay its bundle cost.
@@ -61,45 +70,66 @@ export function MapView() {
   }, [data, hovered, selected])
 
   return (
-    <div className="relative flex h-full min-h-screen w-full flex-col bg-white text-neutral-900">
-      <header className="flex items-center justify-between border-b border-neutral-200 px-6 py-4">
+    <div
+      className="relative flex h-full min-h-screen w-full flex-col"
+      style={{ background: HUD_BG, color: HUD_TEXT }}
+    >
+      <header
+        className="flex items-center justify-between px-6 py-4"
+        style={{ borderBottom: `1px solid ${HUD_BORDER}` }}
+      >
         <div className="flex items-center gap-3">
           <Link
             to="/"
             title={t('header.back')}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-neutral-500 transition hover:text-neutral-900"
+            className="flex h-8 w-8 items-center justify-center transition"
+            style={{ color: HUD_TEXT_DIM }}
           >
             <ArrowLeft size={18} />
           </Link>
-          <span className="font-mono text-xs uppercase tracking-[0.3em] text-neutral-900">
+          <span
+            className="font-mono text-xs uppercase tracking-[0.3em]"
+            style={{ color: HUD_CYAN, textShadow: `0 0 6px ${HUD_CYAN}55` }}
+          >
             Mesh
           </span>
-          <span className="font-mono text-xs uppercase tracking-[0.2em] text-neutral-400">
+          <span
+            className="font-mono text-xs uppercase tracking-[0.2em]"
+            style={{ color: HUD_TEXT_MUTED }}
+          >
             / neural map
           </span>
         </div>
         <div className="flex items-center gap-3">
           <ViewToggle mode={mode} onChange={setMode} />
           <span
-            className={
-              'h-1.5 w-1.5 rounded-full ' +
-              (health.connected ? 'bg-neutral-800' : 'bg-neutral-300')
-            }
+            className="h-1.5 w-1.5"
+            style={{
+              background: health.connected ? HUD_AMBER : HUD_TEXT_MUTED,
+              boxShadow: health.connected ? `0 0 6px ${HUD_AMBER}` : 'none',
+            }}
           />
-          <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-500">
+          <span
+            className="font-mono text-[10px] uppercase tracking-[0.25em]"
+            style={{ color: HUD_TEXT_DIM }}
+          >
             {health.connected ? 'live' : 'desconectado'}
           </span>
           <Link
             to="/app"
             title={t('mesh.open_chat')}
-            className="ml-2 flex h-8 w-8 items-center justify-center rounded-md border border-neutral-300 text-neutral-500 transition hover:border-neutral-500 hover:text-neutral-900"
+            className="ml-2 flex h-8 w-8 items-center justify-center transition"
+            style={{
+              border: `1px solid ${HUD_BORDER}`,
+              color: HUD_TEXT_DIM,
+            }}
           >
             <MessageSquareMore size={16} />
           </Link>
         </div>
       </header>
 
-      <main className="map-bruma relative flex-1 overflow-hidden">
+      <main className="relative flex-1 overflow-hidden">
         {mode === '2d' ? (
           <MapView2D
             ecosystem={data}
@@ -121,28 +151,28 @@ export function MapView() {
         )}
 
         {data && (
-          <ProjectRail
-            projects={data.projects}
-            selected={selected}
-            onSelect={(nodeId) =>
-              setSelected((prev) => (prev === nodeId ? null : nodeId))
-            }
-          />
+          <>
+            <AgentHUD
+              nodes={data.nodes}
+              selected={selected}
+              onSelect={(id) => setSelected((prev) => (prev === id ? null : id))}
+            />
+            <ProjectsHUD
+              projects={data.projects}
+              selected={selected}
+              onSelect={(nodeId) =>
+                setSelected((prev) => (prev === nodeId ? null : nodeId))
+              }
+            />
+          </>
         )}
 
         {displayedNode && data && (
-          <Inspector node={displayedNode} projects={data.projects} />
-        )}
-
-        {mode === '2d' && (
-          <div
-            className="pointer-events-none absolute top-4 right-4 flex flex-col items-end gap-1 font-mono text-[10px] uppercase tracking-[0.2em]"
-            style={{ color: INK_MUTED }}
-          >
-            <EdgeLegend label="parent" kind="solid" weight={1.6} />
-            <EdgeLegend label="depends on" kind="solid" weight={1} />
-            <EdgeLegend label="collaborates" kind="dashed" weight={0.8} />
-          </div>
+          <Inspector
+            node={displayedNode}
+            projects={data.projects}
+            nodes={data.nodes}
+          />
         )}
       </main>
     </div>
@@ -160,29 +190,29 @@ function ViewToggle({
   mode: '2d' | '3d'
   onChange: (m: '2d' | '3d') => void
 }) {
+  const btnStyle = (active: boolean): React.CSSProperties => ({
+    background: active ? HUD_CYAN : 'transparent',
+    color: active ? HUD_BG : HUD_TEXT_DIM,
+    boxShadow: active ? `0 0 8px ${HUD_CYAN}` : 'none',
+  })
   return (
-    <div className="flex items-center rounded-md border border-neutral-300 p-0.5">
+    <div
+      className="flex items-center p-0.5"
+      style={{ border: `1px solid ${HUD_BORDER}` }}
+    >
       <button
         onClick={() => onChange('2d')}
         title="2D view"
-        className={
-          'flex h-7 w-9 items-center justify-center rounded text-xs transition ' +
-          (mode === '2d'
-            ? 'bg-neutral-900 text-white'
-            : 'text-neutral-500 hover:text-neutral-900')
-        }
+        className="flex h-7 w-9 items-center justify-center text-xs transition"
+        style={btnStyle(mode === '2d')}
       >
         <Network size={14} />
       </button>
       <button
         onClick={() => onChange('3d')}
         title="3D view"
-        className={
-          'flex h-7 w-9 items-center justify-center rounded text-xs transition ' +
-          (mode === '3d'
-            ? 'bg-neutral-900 text-white'
-            : 'text-neutral-500 hover:text-neutral-900')
-        }
+        className="flex h-7 w-9 items-center justify-center text-xs transition"
+        style={btnStyle(mode === '3d')}
       >
         <Box size={14} />
       </button>
@@ -193,36 +223,12 @@ function ViewToggle({
 function ViewLoading() {
   return (
     <div className="absolute inset-0 flex items-center justify-center">
-      <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-neutral-500">
+      <span
+        className="font-mono text-[10px] uppercase tracking-[0.25em]"
+        style={{ color: HUD_TEXT_DIM }}
+      >
         loading 3d view…
       </span>
-    </div>
-  )
-}
-
-function EdgeLegend({
-  label,
-  kind,
-  weight,
-}: {
-  label: string
-  kind: 'solid' | 'dashed'
-  weight: number
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <svg width="26" height="8">
-        <line
-          x1="1"
-          y1="4"
-          x2="25"
-          y2="4"
-          stroke={INK_LINE}
-          strokeWidth={weight}
-          strokeDasharray={kind === 'dashed' ? '2 6' : undefined}
-        />
-      </svg>
-      <span>{label}</span>
     </div>
   )
 }

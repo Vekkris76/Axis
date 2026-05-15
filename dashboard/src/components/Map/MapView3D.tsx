@@ -24,7 +24,15 @@ type OrbitControlsImpl = {
   update: () => void
 }
 import type { EcoEdge, EcoNode, EcoProject, EdgeType } from '../../hooks/useEcosystem'
-import { edgeColor, HEX, nodeHex, phaseFor } from './shared/palette'
+import {
+  edgeColor,
+  HEX,
+  nodeHex,
+  phaseFor,
+  HUD_BG,
+  HUD_CYAN,
+  HUD_AMBER,
+} from './shared/palette'
 import {
   normalizedCentrality,
   TIER_RADIUS_3D,
@@ -292,10 +300,10 @@ export function MapView3D({
         camera={{ position: [14, 8, 22], fov: 45, near: 0.1, far: 200 }}
         gl={{ antialias: true, powerPreference: 'high-performance', alpha: false }}
         dpr={[1, 2]}
-        style={{ background: '#06080d' }}
+        style={{ background: HUD_BG }}
       >
-        <color attach="background" args={['#06080d']} />
-        <fog attach="fog" args={['#06080d', 28, 70]} />
+        <color attach="background" args={[HUD_BG]} />
+        <fog attach="fog" args={[HUD_BG, 28, 70]} />
 
         <Suspense fallback={null}>
           <ambientLight intensity={0.35} />
@@ -469,46 +477,71 @@ function Node3DShape({
     },
   }
 
+  // Per-kind facets: every node renders as a faceted wireframe primitive
+  // built once and reused. No spheres → no "planet" reading.
+  //   Axis      : octahedron with double wireframe overlay (signature glyph)
+  //   project   : prism (BoxGeometry stretched) — reads as 'data block'
+  //   agent     : octahedron — sharp, mid-size diamond
+  //   provider  : tetrahedron — three-faced wedge
+  //   skill     : icosahedron at low detail — small geode
+  //   channel   : torus square — small ring
+  const facetGeom = useMemo(() => {
+    const s = node.size
+    if (isAxis) return new THREE.OctahedronGeometry(s * 1.05, 0)
+    if (isProject) return new THREE.BoxGeometry(s * 1.55, s * 1.55, s * 1.55)
+    if (node.kind === 'provider') return new THREE.TetrahedronGeometry(s * 1.15, 0)
+    if (node.kind === 'skill') return new THREE.IcosahedronGeometry(s * 0.9, 0)
+    if (node.kind === 'channel')
+      return new THREE.TorusGeometry(s * 0.85, s * 0.18, 6, 16)
+    return new THREE.OctahedronGeometry(s, 0)
+  }, [node.size, isAxis, isProject, node.kind])
+
+  const wireGeom = useMemo(
+    () => new THREE.EdgesGeometry(facetGeom),
+    [facetGeom],
+  )
+
+  // Spin Axis slowly so the central glyph reads as alive.
+  useFrame(({ clock }) => {
+    if (!isAxis || !groupRef.current) return
+    groupRef.current.rotation.y = clock.elapsedTime * 0.12
+  })
+
   return (
     <group ref={groupRef} position={node.position}>
-      {/* Emissive core orb — this is what bloom picks up */}
-      <mesh ref={coreRef} {...handlers}>
-        <sphereGeometry args={[node.size, 32, 32]} />
+      {/* Solid faceted body — emissive, dim by default; bloom picks up
+          the edges of the wireframe rather than the body itself. */}
+      <mesh ref={coreRef} {...handlers} geometry={facetGeom}>
         <meshStandardMaterial
-          color={haloColor}
+          color={HUD_BG}
           emissive={haloColor}
-          emissiveIntensity={baseEmissive}
-          roughness={0.35}
-          metalness={0}
+          emissiveIntensity={baseEmissive * 0.18}
+          roughness={0.4}
+          metalness={0.4}
+          transparent
+          opacity={0.92}
           toneMapped={false}
         />
       </mesh>
 
-      {/* Project marker: a thin orbital ring so projects read as
-          containers / orbits, not just brighter agents. */}
-      {isProject && (
-        <mesh rotation={[Math.PI / 2.4, 0, 0]}>
-          <torusGeometry args={[node.size * 1.9, node.size * 0.06, 12, 64]} />
-          <meshStandardMaterial
-            color={haloColor}
-            emissive={haloColor}
-            emissiveIntensity={1.4}
-            roughness={0.4}
-            metalness={0.1}
-            transparent
-            opacity={0.85}
-            toneMapped={false}
-          />
-        </mesh>
-      )}
+      {/* Wireframe overlay — the actual neon outline. This is what reads
+          as the node from any distance. */}
+      <lineSegments geometry={wireGeom}>
+        <lineBasicMaterial
+          color={focused ? HUD_AMBER : haloColor}
+          transparent
+          opacity={focused ? 0.95 : 0.72}
+          toneMapped={false}
+        />
+      </lineSegments>
 
-      {/* Soft outer halo — back-face translucent sphere, additive bloom-fed */}
+      {/* Soft outer halo — fed to bloom for the cyan/amber glow */}
       <mesh ref={haloRef}>
-        <sphereGeometry args={[haloSize, 24, 24]} />
+        <sphereGeometry args={[haloSize, 18, 18]} />
         <meshBasicMaterial
           color={haloColor}
           transparent
-          opacity={0.16}
+          opacity={0.1}
           side={THREE.BackSide}
           depthWrite={false}
           toneMapped={false}
@@ -517,7 +550,7 @@ function Node3DShape({
 
       {(isAxis || focused) && (
         <Html
-          position={[0, -node.size - 0.35, 0]}
+          position={[0, -node.size - 0.45, 0]}
           center
           distanceFactor={14}
           occlude={false}
@@ -525,19 +558,19 @@ function Node3DShape({
         >
           <div className="select-none text-center">
             <div
-              className="font-sans text-[13px]"
+              className="font-mono text-[11px] uppercase tracking-[0.28em]"
               style={{
-                color: HEX.ink,
-                fontWeight: isAxis ? 600 : 400,
-                textShadow: '0 0 6px rgba(255,255,255,0.9)',
+                color: focused ? HUD_AMBER : HUD_CYAN,
+                fontWeight: 500,
+                textShadow: `0 0 8px ${focused ? HUD_AMBER : HUD_CYAN}`,
               }}
             >
               {node.label}
             </div>
             {node.sublabel && (
               <div
-                className="font-mono text-[9px] uppercase tracking-[0.15em]"
-                style={{ color: HEX.inkMuted }}
+                className="font-mono text-[8px] uppercase tracking-[0.22em]"
+                style={{ color: '#6a7a98', marginTop: 2 }}
               >
                 {node.sublabel.length > 48 ? node.sublabel.slice(0, 46) + '…' : node.sublabel}
               </div>
