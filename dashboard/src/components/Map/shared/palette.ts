@@ -18,15 +18,16 @@ export const CORE_PERIPHERY = '#8a8a8a'
 // Backwards-compat alias — used by a few callers before the grayscale split.
 export const CORE_DARK = CORE_AGENT
 
-// Pastel family halos — low chroma, high lightness; picked to register on
-// pure white without shouting.
-export const HALO_AXIS = '#efc660' // warm gold — Axis is the supreme node
-export const HALO_CODEX = '#d8a6e0' // lilac
-export const HALO_AGENT = '#9ccfde' // sky
-export const HALO_PROJECT = '#e8c89d' // sand
-export const HALO_SKILL = '#9cd9b5' // mint
-export const HALO_PROVIDER = '#b89ed9' // lavender
-export const HALO_CHANNEL = '#eaa8a8' // blush
+// Family colours — saturated, clearly distinct at a glance. Picked so
+// Axis vs agents vs projects can never be confused even by someone
+// glancing at the map for the first time.
+export const HALO_AXIS = '#f59e0b' // amber — Axis (the hub)
+export const HALO_CODEX = '#a855f7' // purple
+export const HALO_AGENT = '#3b82f6' // strong blue — all agents
+export const HALO_PROJECT = '#ef4444' // strong red — all projects
+export const HALO_SKILL = '#10b981' // emerald
+export const HALO_PROVIDER = '#8b5cf6' // violet
+export const HALO_CHANNEL = '#ec4899' // pink
 
 // Deeper gold reserved for Axis-specific accents (extra outer trace, label
 // dot, 3D crown). Used sparingly so "supreme" still reads.
