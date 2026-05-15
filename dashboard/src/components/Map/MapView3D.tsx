@@ -32,19 +32,20 @@ import {
   type Tier,
 } from './shared/layout'
 
-// Base node size per kind in world units. Quantum-network look: every node
-// is an emissive orb, sized by structural importance.
+// Base node size per kind. Constellation look: nodes are small marks, the
+// network of connections does the heavy visual work. Axis stays noticeably
+// larger so the eye still finds the center.
 const BASE_SIZE: Record<string, number> = {
-  agent: 0.38,
-  project: 0.55,
-  skill: 0.24,
-  provider: 0.28,
-  channel: 0.24,
+  agent: 0.18,
+  project: 0.26,
+  skill: 0.12,
+  provider: 0.14,
+  channel: 0.12,
 }
 
 function baseSize(n: EcoNode): number {
-  if (n.id === 'axis') return 1.2
-  return BASE_SIZE[n.kind] ?? 0.22
+  if (n.id === 'axis') return 0.55
+  return BASE_SIZE[n.kind] ?? 0.12
 }
 
 type Node3D = EcoNode & { position: THREE.Vector3; size: number; tier: Tier }
@@ -281,6 +282,7 @@ export function MapView3D({
 
           <Starfield />
           <DriftParticles />
+          <NeighbourLinks nodes={positioned} focusedId={focusedId} />
 
           {/* Edges first so nodes render on top */}
           {edges.map((e) => {
@@ -343,11 +345,11 @@ export function MapView3D({
 
           <EffectComposer>
             <Bloom
-              intensity={1.6}
-              luminanceThreshold={0.25}
-              luminanceSmoothing={0.85}
+              intensity={0.8}
+              luminanceThreshold={0.45}
+              luminanceSmoothing={0.7}
               mipmapBlur
-              radius={0.85}
+              radius={0.55}
             />
           </EffectComposer>
         </Suspense>
@@ -392,11 +394,11 @@ function Node3DShape({
   const entryDuration = 0.8
   const mountedAt = useRef<number | null>(null)
 
-  // Emissive intensity ladder — Axis is a small sun, projects glow as
-  // containers, agents glow strongly, periphery quietly.
-  const baseEmissive = isAxis ? 3.6 : isProject ? 1.6 : node.kind === 'agent' ? 1.4 : 0.9
+  // Emissive intensity ladder — kept modest so points stay crisp; the
+  // density of connections, not the brightness, carries the composition.
+  const baseEmissive = isAxis ? 2.4 : isProject ? 1.1 : node.kind === 'agent' ? 1.0 : 0.7
   // Halo (outer soft glow) sized relative to the core sphere
-  const haloSize = node.size * (isAxis ? 1.8 : 1.5)
+  const haloSize = node.size * (isAxis ? 2.6 : 1.8)
 
   useFrame(({ clock }) => {
     const t = clock.elapsedTime
@@ -554,10 +556,11 @@ function Edge3D({
     return curve.getPoints(24)
   }, [a.position, b.position, type])
 
-  // On dark bg, edges need more presence — bloom will pick them up.
-  const base = focused ? 1.0 : active ? (type === 'parent' ? 0.85 : 0.65) : 0.45
-  const opacity = dimmed ? base * 0.4 : base
-  const lineWidth = type === 'parent' ? (focused ? 2.6 : 1.8) : focused ? 2.0 : 1.3
+  // Constellation look: edges are thin filaments; the network density does
+  // the heavy lifting. Focused edges still bump up for selection feedback.
+  const base = focused ? 0.95 : active ? (type === 'parent' ? 0.6 : 0.42) : 0.28
+  const opacity = dimmed ? base * 0.35 : base
+  const lineWidth = type === 'parent' ? (focused ? 1.8 : 1.0) : focused ? 1.4 : 0.75
   const dashed = type === 'collaborates_with' || type === 'serves'
 
   return (
@@ -727,6 +730,72 @@ function Starfield({
         toneMapped={false}
       />
     </points>
+  )
+}
+
+// Neighbour links — for every pair of nodes closer than MAX_DIST, draw a
+// very faint thin line whose opacity falls off with distance. This is the
+// "entremat" layer: it suggests every point is in conversation with its
+// neighbours even when no semantic edge exists between them. The semantic
+// edges (parent / depends_on / etc.) still render on top in stronger
+// colours via Edge3D — neighbour links sit underneath as the connective
+// tissue.
+function NeighbourLinks({
+  nodes,
+  focusedId,
+}: {
+  nodes: Node3D[]
+  focusedId: string | null
+}) {
+  const MAX_DIST = 7.5
+  const links = useMemo(() => {
+    const out: {
+      key: string
+      a: THREE.Vector3
+      b: THREE.Vector3
+      idA: string
+      idB: string
+      strength: number
+    }[] = []
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i]
+        const b = nodes[j]
+        const d = a.position.distanceTo(b.position)
+        if (d >= MAX_DIST) continue
+        const strength = Math.pow(1 - d / MAX_DIST, 2)
+        out.push({
+          key: `${a.id}|${b.id}`,
+          a: a.position,
+          b: b.position,
+          idA: a.id,
+          idB: b.id,
+          strength,
+        })
+      }
+    }
+    return out
+  }, [nodes])
+
+  return (
+    <group>
+      {links.map((l) => {
+        const focusBoost =
+          focusedId && (l.idA === focusedId || l.idB === focusedId) ? 2.2 : 1
+        const opacity = Math.min(0.55, l.strength * 0.22 * focusBoost)
+        return (
+          <Line
+            key={l.key}
+            points={[l.a, l.b]}
+            color="#9aa7be"
+            lineWidth={0.6}
+            transparent
+            opacity={opacity}
+            toneMapped={false}
+          />
+        )
+      })}
+    </group>
   )
 }
 
