@@ -56,14 +56,12 @@ export type Ecosystem = {
 
 const BASE = import.meta.env.DEV ? 'https://mesh.aura-digital.org' : ''
 
-// Adaptive polling: slow baseline so the bridge isn't hammered when idle,
-// fast boost when activity > BOOST_THRESHOLD so live demos feel responsive.
-const BASELINE_MS = 5_000
-const BOOST_MS = 1_000
-const BOOST_DURATION_MS = 25_000
-const BOOST_THRESHOLD = 0.3
+// Primary transport: SSE — the bridge pushes snapshots whenever the
+// graph changes. Polling at 5s is the automatic fallback if SSE never
+// connects or drops repeatedly.
+const POLL_FALLBACK_MS = 5_000
 
-export function useEcosystem(pollMs?: number): {
+export function useEcosystem(): {
   data: Ecosystem | null
   loading: boolean
   error: string | null
@@ -74,49 +72,83 @@ export function useEcosystem(pollMs?: number): {
 
   useEffect(() => {
     let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-    let boostUntil = 0
+    let es: EventSource | null = null
+    let pollTimer: ReturnType<typeof setTimeout> | null = null
+    let usingFallback = false
+    let consecutiveErrors = 0
 
-    const schedule = (delay: number) => {
-      if (cancelled) return
-      timer = setTimeout(poll, delay)
+    const startPolling = () => {
+      if (cancelled || usingFallback) return
+      usingFallback = true
+      const poll = async () => {
+        try {
+          const r = await fetch(`${BASE}/api/map`, { cache: 'no-store' })
+          if (!r.ok) throw new Error(`http ${r.status}`)
+          const json = (await r.json()) as Ecosystem
+          if (cancelled) return
+          setData(json)
+          setError(null)
+        } catch (e) {
+          if (cancelled) return
+          setError(e instanceof Error ? e.message : 'unknown')
+        } finally {
+          if (!cancelled) {
+            setLoading(false)
+            pollTimer = setTimeout(poll, POLL_FALLBACK_MS)
+          }
+        }
+      }
+      poll()
     }
 
-    const poll = async () => {
+    const startSSE = () => {
       try {
-        const r = await fetch(`${BASE}/api/map`, { cache: 'no-store' })
-        if (!r.ok) throw new Error(`http ${r.status}`)
-        const json = (await r.json()) as Ecosystem
-        if (cancelled) return
-        setData(json)
-        setError(null)
-
-        const hot = json.nodes.some((n) => (n.activity ?? 0) > BOOST_THRESHOLD)
-        if (hot) boostUntil = Date.now() + BOOST_DURATION_MS
-      } catch (e) {
-        if (cancelled) return
-        setError(e instanceof Error ? e.message : 'unknown')
-      } finally {
-        if (!cancelled) {
+        es = new EventSource(`${BASE}/api/map/stream`)
+      } catch {
+        startPolling()
+        return
+      }
+      es.addEventListener('snapshot', (ev) => {
+        consecutiveErrors = 0
+        try {
+          const json = JSON.parse((ev as MessageEvent).data) as Ecosystem
+          if (cancelled) return
+          setData(json)
+          setError(null)
           setLoading(false)
-          const fixed = pollMs
-          const next =
-            fixed != null
-              ? fixed
-              : Date.now() < boostUntil
-                ? BOOST_MS
-                : BASELINE_MS
-          schedule(next)
+        } catch {
+          // ignore malformed payload — keep last good snapshot
+        }
+      })
+      es.onerror = () => {
+        consecutiveErrors += 1
+        // EventSource auto-reconnects; only fall back to polling if it
+        // never even managed a first message after a few retries.
+        if (consecutiveErrors >= 3 && !usingFallback) {
+          try {
+            es?.close()
+          } catch {
+            /* noop */
+          }
+          startPolling()
         }
       }
     }
 
-    poll()
+    startSSE()
+
     return () => {
       cancelled = true
-      if (timer) clearTimeout(timer)
+      if (es) {
+        try {
+          es.close()
+        } catch {
+          /* noop */
+        }
+      }
+      if (pollTimer) clearTimeout(pollTimer)
     }
-  }, [pollMs])
+  }, [])
 
   return { data, loading, error }
 }

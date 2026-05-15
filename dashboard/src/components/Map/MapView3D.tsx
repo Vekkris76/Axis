@@ -280,6 +280,7 @@ export function MapView3D({
           <directionalLight position={[12, 18, 10]} intensity={0.4} />
 
           <Starfield />
+          <DriftParticles />
 
           {/* Edges first so nodes render on top */}
           {edges.map((e) => {
@@ -553,10 +554,10 @@ function Edge3D({
     return curve.getPoints(24)
   }, [a.position, b.position, type])
 
-  const base = focused ? 0.95 : active ? (type === 'parent' ? 0.72 : 0.52) : 0.38
-  // Softer dim — 0.45 instead of the earlier 0.18
-  const opacity = dimmed ? base * 0.45 : base
-  const lineWidth = type === 'parent' ? (focused ? 2.4 : 1.6) : focused ? 1.8 : 1.1
+  // On dark bg, edges need more presence — bloom will pick them up.
+  const base = focused ? 1.0 : active ? (type === 'parent' ? 0.85 : 0.65) : 0.45
+  const opacity = dimmed ? base * 0.4 : base
+  const lineWidth = type === 'parent' ? (focused ? 2.6 : 1.8) : focused ? 2.0 : 1.3
   const dashed = type === 'collaborates_with' || type === 'serves'
 
   return (
@@ -568,8 +569,9 @@ function Edge3D({
         transparent
         opacity={opacity}
         dashed={dashed}
-        dashSize={0.15}
-        gapSize={0.25}
+        dashSize={0.18}
+        gapSize={0.22}
+        toneMapped={false}
       />
       {active && (
         <EdgePulse3D
@@ -578,49 +580,99 @@ function Edge3D({
           focused={focused}
           type={type}
           phase={phase}
+          color={color}
         />
       )}
     </group>
   )
 }
 
+// Travelling glow packets along an edge — multiple staggered particles so the
+// edge reads as an animated 'energy string', not a single dot. Emissive
+// materials are picked up by the bloom pass and become real glow streaks.
 function EdgePulse3D({
   points,
   activity,
   focused,
   type,
   phase,
+  color,
 }: {
   points: THREE.Vector3[]
   activity: number
   focused: boolean
   type: EdgeType
   phase: number
+  color: string
 }) {
-  const ref = useRef<THREE.Mesh>(null)
   const baseline =
     type === 'parent' ? 0.35 : type === 'depends_on' ? 0.25 : type === 'serves' ? 0.15 : 0.1
   const effective = Math.max(baseline, activity)
-  const duration = focused ? 1.8 : 6 - effective * 3.5
-
+  const duration = focused ? 1.8 : 5.5 - effective * 3
+  // Number of packets scales with effective activity — denser stream when busy
+  const packetCount = focused
+    ? 4
+    : effective > 0.5
+      ? 3
+      : effective > 0.2
+        ? 2
+        : 1
   const curve = useMemo(() => new THREE.CatmullRomCurve3(points), [points])
+  const size = focused ? 0.075 : 0.05 + effective * 0.025
 
+  return (
+    <>
+      {Array.from({ length: packetCount }, (_, i) => (
+        <EdgePulsePacket
+          key={i}
+          curve={curve}
+          duration={duration}
+          phase={(phase + i / packetCount) % 1}
+          color={color}
+          size={size}
+          focused={focused}
+        />
+      ))}
+    </>
+  )
+}
+
+function EdgePulsePacket({
+  curve,
+  duration,
+  phase,
+  color,
+  size,
+  focused,
+}: {
+  curve: THREE.CatmullRomCurve3
+  duration: number
+  phase: number
+  color: string
+  size: number
+  focused: boolean
+}) {
+  const ref = useRef<THREE.Mesh>(null)
   useFrame(({ clock }) => {
     if (!ref.current) return
     const t = (clock.elapsedTime / duration + phase) % 1
-    const p = curve.getPoint(t)
-    ref.current.position.copy(p)
-    const mat = ref.current.material as THREE.MeshBasicMaterial
+    curve.getPoint(t, ref.current.position)
+    const mat = ref.current.material as THREE.MeshStandardMaterial
     const fade = Math.sin(t * Math.PI)
-    mat.opacity = (focused ? 1 : 0.7) * fade
+    mat.emissiveIntensity = (focused ? 4.5 : 3) * fade
+    mat.opacity = (focused ? 1 : 0.9) * fade
   })
-
-  const size = focused ? 0.06 : 0.04 + effective * 0.02
-
   return (
     <mesh ref={ref}>
       <sphereGeometry args={[size, 10, 10]} />
-      <meshBasicMaterial color={HEX.ink} transparent depthWrite={false} />
+      <meshStandardMaterial
+        color={color}
+        emissive={color}
+        emissiveIntensity={3}
+        transparent
+        depthWrite={false}
+        toneMapped={false}
+      />
     </mesh>
   )
 }
@@ -670,6 +722,61 @@ function Starfield({
         sizeAttenuation
         transparent
         opacity={0.85}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+        toneMapped={false}
+      />
+    </points>
+  )
+}
+
+// Ambient drift — sparse glowing motes that slowly orbit the map's
+// interior volume. They sit between the nodes (not the far starfield)
+// to give the sense that the ecosystem is suspended in a thinking medium.
+function DriftParticles({
+  count = 240,
+  radius = 16,
+}: {
+  count?: number
+  radius?: number
+}) {
+  const positions = useMemo(() => {
+    const arr = new Float32Array(count * 3)
+    for (let i = 0; i < count; i++) {
+      const r = radius * Math.cbrt(Math.random())
+      const u = Math.random() * 2 - 1
+      const theta = Math.random() * Math.PI * 2
+      const s = Math.sqrt(1 - u * u)
+      arr[i * 3] = r * s * Math.cos(theta)
+      arr[i * 3 + 1] = r * u
+      arr[i * 3 + 2] = r * s * Math.sin(theta)
+    }
+    return arr
+  }, [count, radius])
+
+  const geom = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    return g
+  }, [positions])
+
+  const ref = useRef<THREE.Points>(null)
+  useFrame(({ clock }) => {
+    if (!ref.current) return
+    // Slow group drift — opposite spin from the camera autorotate so motes
+    // feel independent of the scene, like dust in space
+    ref.current.rotation.y = clock.elapsedTime * 0.012
+    ref.current.rotation.x = Math.sin(clock.elapsedTime * 0.04) * 0.06
+  })
+
+  return (
+    <points geometry={geom} ref={ref}>
+      <pointsMaterial
+        color={HEX.axis}
+        size={0.09}
+        sizeAttenuation
+        transparent
+        opacity={0.65}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
         toneMapped={false}

@@ -5,7 +5,7 @@ import { ChatHeader } from './ChatHeader'
 import { MessageList } from './MessageList'
 import { Composer } from './Composer'
 import type { ChatMessage } from './Message'
-import { sendChat } from '../../lib/api'
+import { streamChat } from '../../lib/api'
 import { getSessionId, newSessionId } from '../../lib/session'
 import { useAuth } from '../../hooks/useAuth'
 import { t } from '../../lib/i18n'
@@ -68,11 +68,43 @@ export function Chat() {
       timestamp: new Date(),
       status: 'ok',
     }
+    const axisMsgId = uuid()
     setMessages((prev) => [...prev, userMsg])
     setInput('')
     setThinking(true)
 
-    const result = await sendChat(text, sessionId)
+    // Pre-create an empty Axis message that we'll grow as deltas arrive.
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: axisMsgId,
+        role: 'axis',
+        text: '',
+        timestamp: new Date(),
+        status: 'ok',
+      },
+    ])
+
+    const appendDelta = (delta: string) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === axisMsgId ? { ...m, text: m.text + delta } : m)),
+      )
+    }
+
+    const result = await streamChat(text, sessionId, {
+      onThinking: () => {
+        // The user's "thinking" indicator is already on; nothing else to do.
+      },
+      onDelta: (delta) => {
+        appendDelta(delta)
+      },
+      onDone: () => {
+        // The final `done` event also carries the full reply, but by the
+        // time it arrives the axis message has already been built from
+        // deltas — no extra work needed beyond clearing the thinking flag.
+      },
+    })
+
     setThinking(false)
 
     if (!result.ok) {
@@ -80,37 +112,35 @@ export function Chat() {
         navigate('/login', { replace: true })
         return
       }
-      const errText = result.error.kind === 'rate'
-        ? `${t('app.error.send')} (rate limit)`
-        : result.error.kind === 'network'
-          ? t('app.error.send')
-          : result.error.kind === 'bad_request'
-            ? `${t('app.error.send')} (${result.error.detail})`
-            : `${t('app.error.reply')} (${result.error.detail || 'server error'})`
-      const errMsg: ChatMessage = {
-        id: uuid(),
-        role: 'system',
-        text: errText,
-        timestamp: new Date(),
-        status: 'error',
-      }
-      setMessages((prev) => [...prev, errMsg])
+      const errText =
+        result.error.kind === 'rate'
+          ? `${t('app.error.send')} (rate limit)`
+          : result.error.kind === 'network'
+            ? t('app.error.send')
+            : result.error.kind === 'bad_request'
+              ? `${t('app.error.send')} (${result.error.detail})`
+              : `${t('app.error.reply')} (${result.error.detail || 'server error'})`
+      // Replace the placeholder axis message with an error system message.
+      setMessages((prev) =>
+        prev
+          .filter((m) => m.id !== axisMsgId)
+          .concat({
+            id: uuid(),
+            role: 'system',
+            text: errText,
+            timestamp: new Date(),
+            status: 'error',
+          }),
+      )
       return
     }
 
-    // Update sessionId in case backend assigned a new canonical id
-    if (result.data.sessionId && result.data.sessionId !== sessionId) {
-      // Keep local id; don't rotate (backend can differ from client's view). Just log.
-    }
-
-    const axisMsg: ChatMessage = {
-      id: uuid(),
-      role: 'axis',
-      text: result.data.reply || '(Sense resposta)',
-      timestamp: new Date(),
-      status: 'ok',
-    }
-    setMessages((prev) => [...prev, axisMsg])
+    // If Axis ended up with an empty reply (rare), replace placeholder text.
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === axisMsgId && m.text === '' ? { ...m, text: '(Sense resposta)' } : m,
+      ),
+    )
   }
 
   return (
