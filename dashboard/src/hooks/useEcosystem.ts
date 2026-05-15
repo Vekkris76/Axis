@@ -56,7 +56,14 @@ export type Ecosystem = {
 
 const BASE = import.meta.env.DEV ? 'https://mesh.aura-digital.org' : ''
 
-export function useEcosystem(pollMs = 10_000): {
+// Adaptive polling: slow baseline so the bridge isn't hammered when idle,
+// fast boost when activity > BOOST_THRESHOLD so live demos feel responsive.
+const BASELINE_MS = 5_000
+const BOOST_MS = 1_000
+const BOOST_DURATION_MS = 25_000
+const BOOST_THRESHOLD = 0.3
+
+export function useEcosystem(pollMs?: number): {
   data: Ecosystem | null
   loading: boolean
   error: string | null
@@ -67,6 +74,13 @@ export function useEcosystem(pollMs = 10_000): {
 
   useEffect(() => {
     let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let boostUntil = 0
+
+    const schedule = (delay: number) => {
+      if (cancelled) return
+      timer = setTimeout(poll, delay)
+    }
 
     const poll = async () => {
       try {
@@ -76,19 +90,31 @@ export function useEcosystem(pollMs = 10_000): {
         if (cancelled) return
         setData(json)
         setError(null)
+
+        const hot = json.nodes.some((n) => (n.activity ?? 0) > BOOST_THRESHOLD)
+        if (hot) boostUntil = Date.now() + BOOST_DURATION_MS
       } catch (e) {
         if (cancelled) return
         setError(e instanceof Error ? e.message : 'unknown')
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          const fixed = pollMs
+          const next =
+            fixed != null
+              ? fixed
+              : Date.now() < boostUntil
+                ? BOOST_MS
+                : BASELINE_MS
+          schedule(next)
+        }
       }
     }
 
     poll()
-    const id = setInterval(poll, pollMs)
     return () => {
       cancelled = true
-      clearInterval(id)
+      if (timer) clearTimeout(timer)
     }
   }, [pollMs])
 
