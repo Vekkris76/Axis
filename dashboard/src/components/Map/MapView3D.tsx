@@ -257,6 +257,27 @@ export function MapView3D({
     return s
   }, [focusedId, edges])
 
+  // Edges drawn = ONLY those touching the focused node, deduplicated by
+  // unordered pair (parent+depends_on between the same two nodes collapse
+  // into a single line — they were stacking and creating odd geometry).
+  // Edge type used for styling is the strongest relation: parent >
+  // depends_on > serves > collaborates_with > link.
+  const focusedEdges = useMemo<EcoEdge[]>(() => {
+    if (!focusedId) return []
+    const rank = (t?: string): number =>
+      t === 'parent' ? 4 : t === 'depends_on' ? 3 : t === 'serves' ? 2 : t === 'collaborates_with' ? 1 : 0
+    const byPair = new Map<string, EcoEdge>()
+    for (const e of edges) {
+      if (e.from !== focusedId && e.to !== focusedId) continue
+      const key = [e.from, e.to].sort().join('|')
+      const existing = byPair.get(key)
+      if (!existing || rank(e.type) > rank(existing.type)) {
+        byPair.set(key, e)
+      }
+    }
+    return Array.from(byPair.values())
+  }, [focusedId, edges])
+
   // Camera target: if a node is selected, center on it and pull in. The
   // CameraController inside the Canvas does the actual lerping.
   const selectedPos = useMemo(() => {
@@ -282,29 +303,25 @@ export function MapView3D({
 
           <Starfield />
           <DriftParticles />
-          <NeighbourLinks nodes={positioned} focusedId={focusedId} />
 
-          {/* Edges first so nodes render on top */}
-          {edges.map((e) => {
+          {/* Edges are only drawn for the focused node's neighbourhood —
+              the map at rest is just points. Multiple semantic relations
+              between the same pair collapse into one line so geometry
+              stays clean. */}
+          {focusedEdges.map((e) => {
             const a = posById.get(e.from)
             const b = posById.get(e.to)
             if (!a || !b) return null
-            const focused =
-              hovered === a.id ||
-              hovered === b.id ||
-              selected === a.id ||
-              selected === b.id
-            const dimmed = focusedId !== null && !focused
             return (
               <Edge3D
-                key={`${e.from}-${e.to}-${e.type ?? 'link'}`}
+                key={`${e.from}-${e.to}`}
                 a={a}
                 b={b}
                 type={(e.type ?? 'link') as EdgeType}
                 active={e.active}
                 activity={e.activity ?? 0}
-                focused={focused}
-                dimmed={dimmed}
+                focused={true}
+                dimmed={false}
                 phase={phaseFor(`${e.from}-${e.to}`)}
                 restingColor={edgeColor(a.kind, a.id, b.kind, b.id)}
               />
@@ -466,6 +483,24 @@ function Node3DShape({
           toneMapped={false}
         />
       </mesh>
+
+      {/* Project marker: a thin orbital ring so projects read as
+          containers / orbits, not just brighter agents. */}
+      {isProject && (
+        <mesh rotation={[Math.PI / 2.4, 0, 0]}>
+          <torusGeometry args={[node.size * 1.9, node.size * 0.06, 12, 64]} />
+          <meshStandardMaterial
+            color={haloColor}
+            emissive={haloColor}
+            emissiveIntensity={1.4}
+            roughness={0.4}
+            metalness={0.1}
+            transparent
+            opacity={0.85}
+            toneMapped={false}
+          />
+        </mesh>
+      )}
 
       {/* Soft outer halo — back-face translucent sphere, additive bloom-fed */}
       <mesh ref={haloRef}>
@@ -730,72 +765,6 @@ function Starfield({
         toneMapped={false}
       />
     </points>
-  )
-}
-
-// Neighbour links — for every pair of nodes closer than MAX_DIST, draw a
-// very faint thin line whose opacity falls off with distance. This is the
-// "entremat" layer: it suggests every point is in conversation with its
-// neighbours even when no semantic edge exists between them. The semantic
-// edges (parent / depends_on / etc.) still render on top in stronger
-// colours via Edge3D — neighbour links sit underneath as the connective
-// tissue.
-function NeighbourLinks({
-  nodes,
-  focusedId,
-}: {
-  nodes: Node3D[]
-  focusedId: string | null
-}) {
-  const MAX_DIST = 7.5
-  const links = useMemo(() => {
-    const out: {
-      key: string
-      a: THREE.Vector3
-      b: THREE.Vector3
-      idA: string
-      idB: string
-      strength: number
-    }[] = []
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i]
-        const b = nodes[j]
-        const d = a.position.distanceTo(b.position)
-        if (d >= MAX_DIST) continue
-        const strength = Math.pow(1 - d / MAX_DIST, 2)
-        out.push({
-          key: `${a.id}|${b.id}`,
-          a: a.position,
-          b: b.position,
-          idA: a.id,
-          idB: b.id,
-          strength,
-        })
-      }
-    }
-    return out
-  }, [nodes])
-
-  return (
-    <group>
-      {links.map((l) => {
-        const focusBoost =
-          focusedId && (l.idA === focusedId || l.idB === focusedId) ? 2.2 : 1
-        const opacity = Math.min(0.55, l.strength * 0.22 * focusBoost)
-        return (
-          <Line
-            key={l.key}
-            points={[l.a, l.b]}
-            color="#9aa7be"
-            lineWidth={0.6}
-            transparent
-            opacity={opacity}
-            toneMapped={false}
-          />
-        )
-      })}
-    </group>
   )
 }
 
