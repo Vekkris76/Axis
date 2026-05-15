@@ -535,18 +535,21 @@ function Node3DShape({
         />
       </lineSegments>
 
-      {/* Soft outer halo — fed to bloom for the cyan/amber glow */}
-      <mesh ref={haloRef}>
-        <sphereGeometry args={[haloSize, 18, 18]} />
-        <meshBasicMaterial
-          color={haloColor}
-          transparent
-          opacity={0.1}
-          side={THREE.BackSide}
-          depthWrite={false}
-          toneMapped={false}
-        />
-      </mesh>
+      {/* Soft outer halo — Axis only. The other nodes read cleanly as
+          wireframe glyphs without an extra sphere around them. */}
+      {isAxis && (
+        <mesh ref={haloRef}>
+          <sphereGeometry args={[haloSize, 18, 18]} />
+          <meshBasicMaterial
+            color={haloColor}
+            transparent
+            opacity={0.12}
+            side={THREE.BackSide}
+            depthWrite={false}
+            toneMapped={false}
+          />
+        </mesh>
+      )}
 
       {(isAxis || focused) && (
         <Html
