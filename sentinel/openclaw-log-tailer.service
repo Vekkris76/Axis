@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenClaw log-tailer (emits activity hits to chat-bridge for telegram/voice/email events)
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /root/openclaw-sentinel/log-tailer.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+User=root
+
+[Install]
+WantedBy=multi-user.target
