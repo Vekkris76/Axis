@@ -5,10 +5,15 @@ type Props = {
   name: string
   Mark: ComponentType<{ className?: string }>
   state: 'idle' | 'thinking' | 'responding' | 'offline'
+  activity?: number
 }
 
-export function AgentPresence({ name, Mark, state }: Props) {
+export function AgentPresence({ name, Mark, state, activity = 0 }: Props) {
   const isAlive = state !== 'offline'
+  // Pulse speed scales with activity. Idle = slow (6s); responding = fast (1.5s).
+  const haloDuration = isAlive ? Math.max(1.5, 6 - activity * 4.5) : 6
+  const orbDuration = isAlive ? Math.max(1.2, 4 - activity * 2.8) : 4
+  const haloIntensity = 0.5 + Math.min(0.4, activity * 0.5)
 
   return (
     <div className="relative flex flex-col items-center gap-8">
@@ -19,8 +24,8 @@ export function AgentPresence({ name, Mark, state }: Props) {
           background:
             'radial-gradient(circle, oklch(0.85 0.12 200 / 0.12) 0%, transparent 60%)',
         }}
-        animate={isAlive ? { scale: [1, 1.06, 1], opacity: [0.5, 0.8, 0.5] } : {}}
-        transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+        animate={isAlive ? { scale: [1, 1.06 + activity * 0.05, 1], opacity: [haloIntensity, haloIntensity + 0.3, haloIntensity] } : {}}
+        transition={{ duration: haloDuration, repeat: Infinity, ease: 'easeInOut' }}
       />
 
       {/* orbital ring */}
@@ -46,13 +51,13 @@ export function AgentPresence({ name, Mark, state }: Props) {
         animate={
           isAlive
             ? { boxShadow: [
-                '0 0 60px oklch(0.85 0.12 200 / 0.25), inset 0 0 40px oklch(0.85 0.12 200 / 0.1)',
-                '0 0 100px oklch(0.85 0.12 200 / 0.4), inset 0 0 60px oklch(0.85 0.12 200 / 0.2)',
-                '0 0 60px oklch(0.85 0.12 200 / 0.25), inset 0 0 40px oklch(0.85 0.12 200 / 0.1)',
+                `0 0 60px oklch(0.85 0.12 200 / ${0.25 + activity * 0.2}), inset 0 0 40px oklch(0.85 0.12 200 / ${0.1 + activity * 0.1})`,
+                `0 0 100px oklch(0.85 0.12 200 / ${0.4 + activity * 0.3}), inset 0 0 60px oklch(0.85 0.12 200 / ${0.2 + activity * 0.2})`,
+                `0 0 60px oklch(0.85 0.12 200 / ${0.25 + activity * 0.2}), inset 0 0 40px oklch(0.85 0.12 200 / ${0.1 + activity * 0.1})`,
               ]}
             : {}
         }
-        transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+        transition={{ duration: orbDuration, repeat: Infinity, ease: 'easeInOut' }}
       >
         <Mark className="h-24 w-24 drop-shadow-[0_0_8px_oklch(0.85_0.12_200_/_0.6)]" />
       </motion.div>

@@ -409,6 +409,13 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
   const strokeColor = node.active ? halo : INK_LINE
   const phase = phaseFor(node.id)
   const haloDelay = phase * 4
+  // Activity modulates the breathing trace: faster pulse + brighter when the
+  // node is being touched (Sentinel hit, chat exchange, etc).
+  const activity = Math.min(1, Math.max(0, node.activity ?? 0))
+  const baseDuration = focused ? 2 : 5 + phase * 2
+  const haloDuration = Math.max(1, baseDuration - activity * 3)
+  const haloOpacityLow = focused ? 0.5 : 0.18 + activity * 0.2
+  const haloOpacityHigh = focused ? 0.85 : 0.45 + activity * 0.35
 
   return (
     <motion.g
@@ -429,12 +436,12 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
           stroke={halo}
           strokeWidth={focused ? 1 : 0.7}
           animate={{
-            opacity: focused ? [0.5, 0.85, 0.5] : [0.18, 0.45, 0.18],
-            scale: focused ? 1.08 : 1,
+            opacity: [haloOpacityLow, haloOpacityHigh, haloOpacityLow],
+            scale: focused ? 1.08 : 1 + activity * 0.06,
           }}
           transition={{
             opacity: {
-              duration: focused ? 2 : 5 + phase * 2,
+              duration: haloDuration,
               repeat: Infinity,
               ease: 'easeInOut',
               delay: haloDelay,

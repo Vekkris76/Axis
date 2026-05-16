@@ -31,6 +31,8 @@ OPENCLAW_CONFIG = Path('/root/.openclaw/openclaw.json')
 
 TELEGRAM_CHAT_ID = os.environ.get('SENTINEL_CHAT_ID', '48321870')
 HEALTHCHECKS_URL = os.environ.get('SENTINEL_HEALTHCHECKS_URL', '').strip()
+BRIDGE_ACTIVITY_URL = os.environ.get('SENTINEL_BRIDGE_URL', 'http://127.0.0.1:18791/internal/activity')
+ACTIVITY_TOKEN_FILE = Path('/root/.axis-secrets/web-auth.env')
 
 MAX_REPEAT_ALERTS = 50
 
@@ -104,6 +106,34 @@ def healthcheck_ping() -> None:
         urllib.request.urlopen(HEALTHCHECKS_URL, timeout=5).read()
     except Exception:
         pass
+
+
+def _load_activity_token() -> str:
+    try:
+        for line in ACTIVITY_TOKEN_FILE.read_text(encoding='utf-8').splitlines():
+            if line.startswith('INTERNAL_ACTIVITY_TOKEN='):
+                return line.split('=', 1)[1].strip()
+    except Exception:
+        pass
+    return ''
+
+
+def emit_activity(node_id: str) -> bool:
+    """Fire-and-forget activity hit to the bridge. Never raises."""
+    token = _load_activity_token()
+    if not token:
+        return False
+    try:
+        req = urllib.request.Request(
+            BRIDGE_ACTIVITY_URL,
+            data=json.dumps({'node_id': node_id}).encode('utf-8'),
+            headers={'Content-Type': 'application/json', 'X-Internal-Token': token},
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
 
 
 # ---------- check handlers ----------
@@ -302,11 +332,18 @@ def main() -> int:
 
     healthcheck_ping()
 
+    # Activity hits to the bridge: Sentinel itself + each project we touched.
+    # The map renders these as pulses so the user sees the watchdog is alive.
+    emit_activity('agent:sentinel')
+    seen_projects = {f['project'] for f in findings if not f['project'].startswith('_')}
+    for pid in seen_projects:
+        emit_activity(f'project:{pid}')
+
     # Summary line to stdout (cron log)
     counts = {'ok': 0, 'notice': 0, 'alert': 0, 'other': 0}
     for f in findings:
         counts[f['state'] if f['state'] in counts else 'other'] += 1
-    print(f"sentinel {started} checks={len(findings)} ok={counts['ok']} notice={counts['notice']} alert={counts['alert']} transitions={len(transitions)}")
+    print(f"sentinel {started} checks={len(findings)} ok={counts['ok']} notice={counts['notice']} alert={counts['alert']} transitions={len(transitions)} activity_hits={1 + len(seen_projects)}")
     return 0
 
 

@@ -7,6 +7,7 @@ import { TopBar } from './TopBar'
 import { ConnectionStatus } from './ConnectionStatus'
 import { AxisMark } from './AxisMark'
 import { useGatewayHealth } from '../hooks/useGatewayHealth'
+import { useEcosystem } from '../hooks/useEcosystem'
 import { useAuth } from '../hooks/useAuth'
 import { t } from '../lib/i18n'
 
@@ -15,11 +16,11 @@ type AgentState = 'idle' | 'thinking' | 'responding' | 'offline'
 export function Mesh() {
   const [now, setNow] = useState(() => new Date())
   const health = useGatewayHealth()
+  const eco = useEcosystem()
   const { authenticated } = useAuth()
   const [axis] = useState({
     name: 'Axis',
     model: 'openai-codex/gpt-5.4',
-    lastActivity: new Date(Date.now() - 1000 * 60 * 6),
   })
 
   useEffect(() => {
@@ -27,8 +28,20 @@ export function Mesh() {
     return () => clearInterval(id)
   }, [])
 
-  const state: AgentState = health.connected ? 'idle' : 'offline'
-  const minsSince = Math.round((now.getTime() - axis.lastActivity.getTime()) / 60000)
+  // Activity drives the "is Axis doing something right now?" signal.
+  // 0..1 from the bridge, decayed over a 5-min window.
+  const axisActivity = eco.data?.nodes.find((n) => n.id === 'axis')?.activity ?? 0
+  const state: AgentState = !health.connected
+    ? 'offline'
+    : axisActivity > 0.5
+      ? 'responding'
+      : axisActivity > 0.1
+        ? 'thinking'
+        : 'idle'
+  const ecosystemActivity = (eco.data?.nodes ?? []).reduce(
+    (acc, n) => Math.max(acc, n.activity ?? 0),
+    0,
+  )
 
   return (
     <div className="relative flex h-full min-h-screen w-full flex-col">
@@ -56,7 +69,7 @@ export function Mesh() {
 
       <main className="grid flex-1 grid-cols-1 gap-12 px-12 py-10 lg:grid-cols-[1fr_360px]">
         <section className="relative flex items-center justify-center">
-          <AgentPresence name={axis.name} Mark={AxisMark} state={state} />
+          <AgentPresence name={axis.name} Mark={AxisMark} state={state} activity={axisActivity} />
         </section>
 
         <aside className="flex flex-col gap-4">
@@ -72,8 +85,9 @@ export function Mesh() {
             mono
           />
           <StatusPanel
-            label="Última actividad"
-            value={relativeMinutes(minsSince)}
+            label="Actividad ecosistema"
+            value={activityLabel(ecosystemActivity)}
+            tone={ecosystemActivity > 0.05 ? 'accent' : 'neutral'}
           />
         </aside>
       </main>
@@ -99,10 +113,10 @@ function stateLabel(s: AgentState): string {
   }
 }
 
-function relativeMinutes(mins: number): string {
-  if (mins < 1) return 'ahora mismo'
-  if (mins < 60) return `hace ${mins} min`
-  const h = Math.round(mins / 60)
-  if (h < 24) return `hace ${h} h`
-  return `hace ${Math.round(h / 24)} d`
+function activityLabel(score: number): string {
+  // 0..1 score → human label. Decays over a 5-min window in the bridge.
+  if (score <= 0.05) return 'En silencio'
+  if (score < 0.2) return 'Latido bajo'
+  if (score < 0.5) return 'Actividad moderada'
+  return 'Actividad alta'
 }

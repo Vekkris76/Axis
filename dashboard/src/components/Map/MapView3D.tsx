@@ -418,13 +418,17 @@ function Node3DShape({
     }
 
     if (shellRef.current) {
-      const period = 5 + phase * 2
+      // Activity speeds up the breathing and widens the opacity swing so a
+      // busy node visibly pulses brighter and faster than a quiet one.
+      const activity = Math.min(1, Math.max(0, node.activity ?? 0))
+      const period = Math.max(1.2, (5 + phase * 2) - activity * 3.2)
       const pulse = 0.6 + 0.4 * Math.sin((t / period + phase) * Math.PI * 2)
       const mat = shellRef.current.material as THREE.LineBasicMaterial
       const baseOp = focused ? 0.98 : node.active ? 0.85 : 0.45
       // Softer dim — 0.5 instead of 0.22
       const dim = dimmed ? 0.5 : 1
-      mat.opacity = baseOp * (0.75 + 0.25 * pulse) * dim
+      const swing = 0.25 + activity * 0.35
+      mat.opacity = baseOp * (1 - swing + swing * pulse * 2) * dim
       // Focus mode: tint the envelope gold when this node is the target
       mat.color.set(focused ? HEX.focusGold : haloColor)
     }
