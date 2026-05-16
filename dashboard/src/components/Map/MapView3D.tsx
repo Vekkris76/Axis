@@ -620,12 +620,11 @@ function Edge3D({
         dashSize={0.05}
         gapSize={0.18}
       />
-      {active && (
+      {active && (activity > 0.05 || focused) && (
         <EdgePulse3D
           points={points}
           activity={activity}
           focused={focused}
-          type={type}
           phase={phase}
         />
       )}
@@ -637,20 +636,17 @@ function EdgePulse3D({
   points,
   activity,
   focused,
-  type,
   phase,
 }: {
   points: THREE.Vector3[]
   activity: number
   focused: boolean
-  type: EdgeType
   phase: number
 }) {
   const ref = useRef<THREE.Mesh>(null)
-  const baseline =
-    type === 'parent' ? 0.35 : type === 'depends_on' ? 0.25 : type === 'serves' ? 0.15 : 0.1
-  const effective = Math.max(baseline, activity)
-  const duration = focused ? 1.8 : 6 - effective * 3.5
+  // Pulse semantics: only renders when there's real activity (gated by the
+  // caller). No decorative baseline — silent edges read as "no work happening".
+  const duration = focused ? 1.8 : Math.max(1.5, 5 - activity * 3.5)
 
   const curve = useMemo(() => new THREE.CatmullRomCurve3(points), [points])
 
@@ -664,7 +660,7 @@ function EdgePulse3D({
     mat.opacity = (focused ? 1 : 0.7) * fade
   })
 
-  const size = focused ? 0.06 : 0.04 + effective * 0.02
+  const size = focused ? 0.06 : 0.04 + activity * 0.04
 
   return (
     <mesh ref={ref}>

@@ -665,7 +665,7 @@ function MeshEdge({
         fill="none"
         opacity={baseOpacity}
       />
-      {active && (
+      {active && (activity > 0.05 || focused) && (
         <EdgePulse path={d} activity={activity} focused={focused} type={type} phase={phase} />
       )}
     </g>
@@ -685,14 +685,13 @@ function EdgePulse({
   type: EdgeType
   phase: number
 }) {
-  const baseline =
-    type === 'parent' ? 0.35 : type === 'depends_on' ? 0.25 : type === 'serves' ? 0.15 : 0.1
-  const effective = Math.max(baseline, activity)
-  const count = focused ? 3 : effective > 0.5 ? 2 : 1
-  const duration = focused ? 1.5 : 6 - effective * 3.5
+  // Pulse semantics: only renders when there's real activity (or the edge is
+  // focused). No decorative baseline — silent edges read as "no work happening".
+  const count = focused ? 3 : activity > 0.5 ? 2 : 1
+  const duration = focused ? 1.5 : Math.max(1.2, 5 - activity * 3.5)
   const pulseColor = type === 'serves' ? HALO_PROJECT : '#404040'
-  const pulseR = focused ? 2.8 : type === 'serves' ? 1.4 : 1.8 + effective
-  const peakOpacity = type === 'serves' ? 0.55 : focused ? 1 : 0.6 + effective * 0.4
+  const pulseR = focused ? 2.8 : type === 'serves' ? 1.4 : 1.6 + activity * 1.4
+  const peakOpacity = type === 'serves' ? 0.55 : focused ? 1 : 0.6 + activity * 0.4
 
   return (
     <>
