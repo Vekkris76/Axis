@@ -58,11 +58,13 @@ const EDGE_DISTANCES: Record<EdgeType, number> = {
 // Base node radius per kind. Axis gets special treatment. Actual radius is
 // this base multiplied by (1 + centrality * 0.5) so well-connected nodes
 // grow subtly.
+// Projects are the largest (container role); other families sit just under
+// that size so they don't read as tiny dots beside the projects.
 const BASE_RADIUS: Record<string, number> = {
-  agent: 22,
-  skill: 12,
-  channel: 12,
-  provider: 15,
+  agent: 25,
+  skill: 19,
+  channel: 19,
+  provider: 21,
   project: 26,
 }
 
@@ -412,11 +414,14 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
   const isAxis = node.id === 'axis'
   const isProject = node.kind === 'project'
   const focused = hovered || selected
-  // Core scales with the node's own radius so identity reads at a glance.
-  // Axis stays large (it's the hub); other nodes are ~40% of their halo.
+  // Core scales with the node's own radius. The core is now the primary
+  // identity mark — bigger and glow-haloed so it pops on dark bg. Projects
+  // keep a small inner dot because the octagon stroke is their identity.
   const coreR = isAxis
-    ? Math.max(6, r * 0.5)
-    : Math.max(focused ? 6 : 5, r * 0.42)
+    ? Math.max(8, r * 0.6)
+    : isProject
+      ? Math.max(focused ? 4 : 3, r * 0.22)
+      : Math.max(focused ? 8 : 7, r * 0.55)
   const halo = nodeColor(node)
   const core = nodeCore(node)
   const strokeColor = node.active ? halo : INK_LINE
@@ -432,9 +437,13 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
     : isHitting
       ? Math.max(1.5, 3.5 - activity * 2)
       : 12 + phase * 4
-  const haloOpacityLow = focused ? 0.5 : isHitting ? 0.3 : 0.1
-  const haloOpacityHigh = focused ? 0.85 : isHitting ? 0.7 + activity * 0.2 : 0.18
+  // Projects are passive containers — their halo is intentionally fainter
+  // than agents' so the octagon (the real identity mark) leads the eye.
+  const projectDamp = isProject ? 0.55 : 1
+  const haloOpacityLow = focused ? 0.5 : (isHitting ? 0.3 : 0.1) * projectDamp
+  const haloOpacityHigh = focused ? 0.85 : (isHitting ? 0.7 + activity * 0.2 : 0.18) * projectDamp
   const haloScaleHigh = focused ? 1.08 : isHitting ? 1 + activity * 0.08 : 1.015
+  const haloStrokeWidth = isProject ? (focused ? 0.7 : 0.45) : focused ? 1 : 0.7
 
   return (
     <motion.g
@@ -453,7 +462,7 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
           r={r * (isProject ? 1.4 : 1.6)}
           fill="none"
           stroke={halo}
-          strokeWidth={focused ? 1 : 0.7}
+          strokeWidth={haloStrokeWidth}
           animate={{
             opacity: [haloOpacityLow, haloOpacityHigh, haloOpacityLow],
             scale: haloScaleHigh,
@@ -508,7 +517,8 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
               opacity={0.75}
             />
           )}
-          {/* Main family ring — stroke only */}
+          {/* Main family ring — stroke only. Kept at modest opacity so the
+              tinted core (the actual identity mark) is what leads the eye. */}
           <motion.circle
             initial={false}
             cx={x}
@@ -516,11 +526,12 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
             r={focused ? r * 1.15 : r}
             fill="none"
             stroke={strokeColor}
-            strokeWidth={focused ? 1.8 : isAxis ? 1.6 : 1.2}
-            animate={{ opacity: focused ? 1 : node.active ? 0.95 : 0.4 }}
+            strokeWidth={focused ? 1.6 : isAxis ? 1.4 : 1}
+            animate={{ opacity: focused ? 0.95 : node.active ? 0.7 : 0.35 }}
             transition={{ duration: 0.25 }}
           />
-          {/* Dark core — the only solid shape */}
+          {/* Vibrant solid core — primary identity mark. Drop-shadow gives a
+              soft glow in its own family colour so the core leads the eye. */}
           <motion.circle
             initial={false}
             cx={x}
@@ -529,6 +540,7 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
             fill={core}
             animate={{ opacity: node.active ? 1 : 0.45 }}
             transition={{ duration: 0.25 }}
+            style={{ filter: `drop-shadow(0 0 ${isAxis ? 5 : 4}px ${core})` }}
           />
           {/* Axis: tiny gold speck inside the core for the supreme accent */}
           {isAxis && (
@@ -620,16 +632,18 @@ function MeshEdge({
   const d = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`
 
   const strokeBase = type === 'serves' ? HALO_PROJECT : INK_LINE
+  // Dotted style (round caps + zero-length dash) for any non-solid edge so
+  // they read as a chain of dots rather than rectangular dashes.
   const strokeDash =
     type === 'parent'
       ? undefined
       : type === 'collaborates_with'
-        ? '2 6'
+        ? '0 6'
         : type === 'serves'
-          ? '1 6'
+          ? '0 7'
           : active
             ? undefined
-            : '4 4'
+            : '0 5'
   const strokeWidth =
     type === 'parent'
       ? focused ? 2 : 1.3
@@ -647,6 +661,7 @@ function MeshEdge({
         stroke={strokeBase}
         strokeWidth={strokeWidth}
         strokeDasharray={strokeDash}
+        strokeLinecap={strokeDash ? 'round' : undefined}
         fill="none"
         opacity={baseOpacity}
       />

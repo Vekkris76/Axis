@@ -32,12 +32,14 @@ import {
 } from './shared/layout'
 
 // Base node size per kind in world units.
+// Projects are the largest (container role); other families are bumped close
+// to that so they don't read as tiny dots next to the projects.
 const BASE_SIZE: Record<string, number> = {
-  agent: 0.32,
+  agent: 0.38,
   project: 0.4,
-  skill: 0.22,
-  provider: 0.26,
-  channel: 0.22,
+  skill: 0.32,
+  provider: 0.34,
+  channel: 0.32,
 }
 
 function baseSize(n: EcoNode): number {
@@ -421,6 +423,8 @@ function Node3DShape({
       // Bimodal pulse: idle nodes barely breathe (long period, tiny swing —
       // the scene feels calm, not dead); active nodes pulse fast and bright
       // so the difference between "alive" and "working" is unmistakable.
+      // Projects use a much dimmer base so the wireframe geoid reads as a
+      // soft container, not the dominant mark — the core sphere should lead.
       const activity = Math.min(1, Math.max(0, node.activity ?? 0))
       const isHitting = activity > 0.05
       const period = isHitting
@@ -428,7 +432,11 @@ function Node3DShape({
         : 14 + phase * 4
       const pulse = 0.6 + 0.4 * Math.sin((t / period + phase) * Math.PI * 2)
       const mat = shellRef.current.material as THREE.LineBasicMaterial
-      const baseOp = focused ? 0.98 : node.active ? 0.85 : 0.45
+      const baseOp = focused
+        ? 0.98
+        : isProject
+          ? node.active ? 0.4 : 0.2
+          : node.active ? 0.85 : 0.45
       // Softer dim — 0.5 instead of 0.22
       const dim = dimmed ? 0.5 : 1
       const swing = isHitting ? 0.35 + activity * 0.35 : 0.08
@@ -461,13 +469,19 @@ function Node3DShape({
     },
   }
 
-  // Core is small relative to the wireframe shell: the shell is the visual
-  // envelope, the core is the mark inside it.
-  const coreSize = isAxis ? node.size * 0.78 : isProject ? node.size * 0.5 : node.size * 0.44
+  // Core is now the primary mark: bigger and emissive so it leads the eye
+  // over the wireframe shell. Project keeps its existing 0.5 ratio (octagon-
+  // style sphere wrapped by the geoid).
+  const coreSize = isAxis
+    ? node.size * 0.88
+    : isProject
+      ? node.size * 0.5
+      : node.size * 0.62
 
   return (
     <group ref={groupRef} position={node.position}>
-      {/* Grayscale solid core — sphere for projects, cube for everyone else */}
+      {/* Vibrant solid core — sphere for projects, cube for everyone else.
+          Emissive component makes the family colour glow on dark bg. */}
       <mesh ref={coreRef} {...handlers}>
         {isProject ? (
           <sphereGeometry args={[coreSize, 24, 24]} />
@@ -476,6 +490,8 @@ function Node3DShape({
         )}
         <meshStandardMaterial
           color={coreColor}
+          emissive={coreColor}
+          emissiveIntensity={isAxis ? 0.55 : isProject ? 0.05 : 0.45}
           roughness={0.55}
           metalness={isAxis ? 0.45 : 0.08}
         />
@@ -583,8 +599,14 @@ function Edge3D({
   const base = focused ? 0.95 : active ? (type === 'parent' ? 0.72 : 0.52) : 0.38
   // Softer dim — 0.45 instead of the earlier 0.18
   const opacity = dimmed ? base * 0.45 : base
-  const lineWidth = type === 'parent' ? (focused ? 2.4 : 1.6) : focused ? 1.8 : 1.1
   const dashed = type === 'collaborates_with' || type === 'serves'
+  // Dashed lines get thicker stroke so each "dash" reads as a chunky dot
+  // rather than a faint sliver. Solid lines keep their slimmer width.
+  const lineWidth = type === 'parent'
+    ? focused ? 2.4 : 1.6
+    : dashed
+      ? focused ? 2.4 : 1.9
+      : focused ? 1.8 : 1.1
 
   return (
     <group>
@@ -595,8 +617,8 @@ function Edge3D({
         transparent
         opacity={opacity}
         dashed={dashed}
-        dashSize={0.15}
-        gapSize={0.25}
+        dashSize={0.05}
+        gapSize={0.18}
       />
       {active && (
         <EdgePulse3D

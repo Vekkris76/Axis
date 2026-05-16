@@ -68,24 +68,28 @@ const LIGHT: Palette = {
 }
 
 const DARK: Palette = {
-  // Cores brighter than light theme — must read on slate-950 bg
-  CORE_AXIS: '#e8c878',
-  CORE_AGENT: '#5a8fd0',
-  CORE_PROJECT: '#d96060',
-  CORE_SKILL: '#34c89a',
-  CORE_PROVIDER: '#a87cf0',
-  CORE_CHANNEL: '#e070b0',
+  // Cores at Tailwind 400-level — vibrant solid fills so the node identity
+  // pops on slate-950 bg. Agents are the lead. Projects use a deeper,
+  // grounded red so they read as containers, not dominant marks.
+  CORE_AXIS: '#fbbf24',
+  CORE_AGENT: '#60a5fa',
+  CORE_PROJECT: '#c0a890',
+  CORE_SKILL: '#34d399',
+  CORE_PROVIDER: '#a78bfa',
+  CORE_CHANNEL: '#f472b6',
   CORE_PERIPHERY: '#9aa3b8',
-  // Halos kept saturated — they pop on dark bg
-  HALO_AXIS: '#fbbf24',
-  HALO_CODEX: '#c084fc',
-  HALO_AGENT: '#60a5fa',
-  HALO_PROJECT: '#f87171',
-  HALO_SKILL: '#34d399',
-  HALO_PROVIDER: '#a78bfa',
-  HALO_CHANNEL: '#f472b6',
-  GOLD_DEEP: '#d9a13a',
-  GOLD_FOCUS: '#f0c060',
+  // Halos two notches darker than light theme (Tailwind 700-level). They
+  // give just enough family identity around each node without competing
+  // with the brighter tinted core — the core stays the visual lead.
+  HALO_AXIS: '#b45309',
+  HALO_CODEX: '#7e22ce',
+  HALO_AGENT: '#1d4ed8',
+  HALO_PROJECT: '#b91c1c',
+  HALO_SKILL: '#047857',
+  HALO_PROVIDER: '#6d28d9',
+  HALO_CHANNEL: '#be185d',
+  GOLD_DEEP: '#8a5820',
+  GOLD_FOCUS: '#a86d2e',
   INK: '#e6e8ee',
   INK_MUTED: '#94a0b6',
   INK_LINE: '#3a4458',

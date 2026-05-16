@@ -293,7 +293,8 @@ function EdgeLegend({
           y2="4"
           stroke={INK_LINE}
           strokeWidth={weight}
-          strokeDasharray={kind === 'dashed' ? '2 6' : undefined}
+          strokeDasharray={kind === 'dashed' ? '0 6' : undefined}
+          strokeLinecap={kind === 'dashed' ? 'round' : undefined}
         />
       </svg>
       <span>{label}</span>
