@@ -91,6 +91,21 @@ Gestión de proyectos (Linear / Jira / Notion / Asana): sin configurar.
 - **Stack alternativo o fallback**: sin configurar. Si Codex se cae, Axis falla.
 - **Cómo se conmuta**: editar `agents.defaults.model.primary` en `/root/.openclaw/openclaw.json`; los fallbacks se añaden bajo `agents.defaults.model.fallbacks` cuando se configuren.
 
+## Sentinel (watchdog)
+
+Agente de vigilancia periódica. Vive en el host `openclaw`, no en el contenedor.
+
+- **Script**: `/root/openclaw-sentinel/sentinel.py` (stdlib only, sin deps).
+- **Cron**: root crontab del host, cada 5 min: `*/5 * * * * /usr/bin/python3 /root/openclaw-sentinel/sentinel.py >> /var/log/sentinel.log 2>&1`.
+- **Fuentes** que monitoriza: bloque opcional `monitoring` dentro de cada `workspace/projects/<id>/project.json`. Schema en `~/Projects/OpenClaw/sentinel/SCHEMA.md`.
+- **Tipos de check** (fase 1): `http`, `docker`, `disk`, `ssh`.
+- **Estado vivo**: `/root/.openclaw/workspace/state/sentinel/current.json` — último estado conocido de cada check (clave `<project>:<bucket>:<check_id>`).
+- **Histórico**: `/root/.openclaw/workspace/state/sentinel/findings-YYYY-MM-DD.jsonl` — una línea por finding por ejecución; legible por otros agentes (Reviewer, Architect) desde dentro del contenedor.
+- **Alertas Telegram**: solo en **transiciones** (`ok → alert` o `alert → ok`). Prefix `[SENTINEL ALERT]` / `[SENTINEL OK]`. Bot token leído de `channels.telegram.botToken` en `openclaw.json`; destino `chat_id=48321870` (override con env `SENTINEL_CHAT_ID`).
+- **Healthchecks.io dead-man's switch**: ping a la URL en env `SENTINEL_HEALTHCHECKS_URL` al final de cada ejecución. Sin URL, no pinga.
+- **Pilot project**: `openclaw-infra` (en `workspace/projects/openclaw-infra/project.json`) — auto-monitoreo del propio stack (axis/mesh endpoints + 3 contenedores + disco raíz).
+- **Fuentes locales del código**: `~/Projects/OpenClaw/sentinel/` (script, schema, pilot project.json, install.sh idempotente).
+
 ## Stack web personalizado (mesh + chat-bridge)
 
 Construido sobre `aura-digital.org`. Vive al lado del Gateway de OpenClaw, no dentro. Axis lo gobierna indirectamente: los datos que expone salen del mismo workspace y `openclaw.json`.

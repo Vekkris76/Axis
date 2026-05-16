@@ -1,0 +1,25 @@
+{
+  "id": "openclaw-infra",
+  "name": "OpenClaw Infra",
+  "color": "oklch(0.65 0.18 30)",
+  "summary": "Infraestructura pròpia d'Axis (gateway, chat-bridge, Caddy, endpoints públics). Vigilada per Sentinel.",
+  "status": "active",
+  "agents": ["axis", "sentinel"],
+  "skills": [],
+  "channels": ["telegram"],
+  "notes": "Projecte meta: monitoritzar la pròpia infra que allotja Axis. Pilot de Sentinel fase 1.",
+  "monitoring": {
+    "liveness": [
+      { "id": "axis-healthz", "type": "http", "url": "https://axis.aura-digital.org/healthz", "expect_status": 200 },
+      { "id": "axis-readyz",  "type": "http", "url": "https://axis.aura-digital.org/readyz",  "expect_status": 200 },
+      { "id": "mesh-healthz", "type": "http", "url": "https://mesh.aura-digital.org/api/healthz", "expect_status": 200 },
+      { "id": "mesh-landing", "type": "http", "url": "https://mesh.aura-digital.org/", "expect_status": 200 },
+      { "id": "gateway-container",   "type": "docker", "host": "local", "container": "openclaw-openclaw-gateway-1" },
+      { "id": "chat-bridge-container","type": "docker", "host": "local", "container": "openclaw-chat-bridge-1" },
+      { "id": "caddy-container",     "type": "docker", "host": "local", "container": "openclaw-caddy-1" }
+    ],
+    "drift": [
+      { "id": "root-disk", "type": "disk", "host": "local", "path": "/", "warn_pct": 80, "alert_pct": 90 }
+    ]
+  }
+}
