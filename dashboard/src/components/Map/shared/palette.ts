@@ -1,59 +1,228 @@
-// Light-mode palette for the neural map.
+// Dual-theme palette for the neural map.
 //
-// Canvas is white. Node cores are charcoal so they read as solid marks on
-// paper. Each family gets a pastel halo that only hints at identity — no
-// saturated color competes with the structure. Axis and OpenAI Codex keep
-// their own pastel so the eye can still find the two anchor nodes.
+// All exported constants are `let` so this module can swap them when the user
+// toggles light/dark. ES module bindings are live: importers and functions
+// inside this file always see the current value. After `setMapTheme()` swaps
+// them, components must re-render to repaint — MapView re-mounts the views
+// via key={theme} for that.
 
 import type { EcoNode, NodeKind } from '../../../hooks/useEcosystem'
 
-// Node core — grayscale ladder that walks from center outward.
-// Axis is almost black; agents, projects, and periphery each get their own
-// gray shade so the hierarchy is legible even without the pastel halos.
-export const CORE_AXIS = '#1a1a14' // near-black with a warm tint
-export const CORE_AGENT = '#333333'
-export const CORE_PROJECT = '#5a5a5a'
-export const CORE_PERIPHERY = '#8a8a8a'
+export type MapTheme = 'light' | 'dark'
 
-// Backwards-compat alias — used by a few callers before the grayscale split.
-export const CORE_DARK = CORE_AGENT
+const STORAGE_KEY = 'mesh.map-theme'
 
-// Family colours — saturated, clearly distinct at a glance. Picked so
-// Axis vs agents vs projects can never be confused even by someone
-// glancing at the map for the first time.
-export const HALO_AXIS = '#f59e0b' // amber — Axis (the hub)
-export const HALO_CODEX = '#a855f7' // purple
-export const HALO_AGENT = '#3b82f6' // strong blue — all agents
-export const HALO_PROJECT = '#ef4444' // strong red — all projects
-export const HALO_SKILL = '#10b981' // emerald
-export const HALO_PROVIDER = '#8b5cf6' // violet
-export const HALO_CHANNEL = '#ec4899' // pink
+// ---------------------------------------------------------------------------
+// Theme palettes
+// ---------------------------------------------------------------------------
 
-// Deeper gold reserved for Axis-specific accents (extra outer trace, label
-// dot, 3D crown). Used sparingly so "supreme" still reads.
-export const GOLD_DEEP = '#c89228'
-// Focus gold — lighter, more visible on white; used when the user is
-// hovering/selecting a node to mark connections to and from it.
-export const GOLD_FOCUS = '#d9a13a'
+type Palette = {
+  // Core fills (deep tints, recognisable family identity)
+  CORE_AXIS: string
+  CORE_AGENT: string
+  CORE_PROJECT: string
+  CORE_SKILL: string
+  CORE_PROVIDER: string
+  CORE_CHANNEL: string
+  CORE_PERIPHERY: string
+  // Halos (saturated family colors)
+  HALO_AXIS: string
+  HALO_CODEX: string
+  HALO_AGENT: string
+  HALO_PROJECT: string
+  HALO_SKILL: string
+  HALO_PROVIDER: string
+  HALO_CHANNEL: string
+  // Axis accents
+  GOLD_DEEP: string
+  GOLD_FOCUS: string
+  // Chrome
+  INK: string
+  INK_MUTED: string
+  INK_LINE: string
+  BG: string
+}
 
-// Neutral tones for edges, text, chrome
-export const INK = '#1f1f1f'
-export const INK_MUTED = '#6b6b6b'
-export const INK_LINE = '#b8b8b8'
-export const BG = '#ffffff'
+const LIGHT: Palette = {
+  // Cores tinted with family color, dark enough to read on white
+  CORE_AXIS: '#1a1a14',
+  CORE_AGENT: '#1e3a5f',
+  CORE_PROJECT: '#6b1d1d',
+  CORE_SKILL: '#0d4f3a',
+  CORE_PROVIDER: '#3b1f6b',
+  CORE_CHANNEL: '#6b1d4a',
+  CORE_PERIPHERY: '#5a5a5a',
+  HALO_AXIS: '#f59e0b',
+  HALO_CODEX: '#a855f7',
+  HALO_AGENT: '#3b82f6',
+  HALO_PROJECT: '#ef4444',
+  HALO_SKILL: '#10b981',
+  HALO_PROVIDER: '#8b5cf6',
+  HALO_CHANNEL: '#ec4899',
+  GOLD_DEEP: '#c89228',
+  GOLD_FOCUS: '#d9a13a',
+  INK: '#1f1f1f',
+  INK_MUTED: '#6b6b6b',
+  INK_LINE: '#b8b8b8',
+  BG: '#ffffff',
+}
 
-// Legacy aliases so existing callers keep working.
-export const COLOR_AXIS = HALO_AXIS
-export const COLOR_CODEX = HALO_CODEX
-export const COLOR_AGENT = HALO_AGENT
-export const COLOR_PROJECT = HALO_PROJECT
-export const COLOR_SKILL = HALO_SKILL
-export const COLOR_PROVIDER = HALO_PROVIDER
-export const COLOR_CHANNEL = HALO_CHANNEL
-export const COLOR_SYNAPSE = INK_LINE
+const DARK: Palette = {
+  // Cores brighter than light theme — must read on slate-950 bg
+  CORE_AXIS: '#e8c878',
+  CORE_AGENT: '#5a8fd0',
+  CORE_PROJECT: '#d96060',
+  CORE_SKILL: '#34c89a',
+  CORE_PROVIDER: '#a87cf0',
+  CORE_CHANNEL: '#e070b0',
+  CORE_PERIPHERY: '#9aa3b8',
+  // Halos kept saturated — they pop on dark bg
+  HALO_AXIS: '#fbbf24',
+  HALO_CODEX: '#c084fc',
+  HALO_AGENT: '#60a5fa',
+  HALO_PROJECT: '#f87171',
+  HALO_SKILL: '#34d399',
+  HALO_PROVIDER: '#a78bfa',
+  HALO_CHANNEL: '#f472b6',
+  GOLD_DEEP: '#d9a13a',
+  GOLD_FOCUS: '#f0c060',
+  INK: '#e6e8ee',
+  INK_MUTED: '#94a0b6',
+  INK_LINE: '#3a4458',
+  BG: '#0a0e1a',
+}
 
-// nodeColor returns the halo / pastel accent. For the solid dark mark, use
-// nodeCore.
+// ---------------------------------------------------------------------------
+// Active theme + setter
+// ---------------------------------------------------------------------------
+
+function readInitial(): MapTheme {
+  if (typeof localStorage === 'undefined') return 'dark'
+  const v = localStorage.getItem(STORAGE_KEY)
+  return v === 'light' ? 'light' : 'dark'
+}
+
+let activeTheme: MapTheme = readInitial()
+let active: Palette = activeTheme === 'dark' ? DARK : LIGHT
+
+// All exports below are `let` so setMapTheme() can swap them. Importers see
+// live bindings; functions in this module re-read on each call.
+
+export let CORE_AXIS = active.CORE_AXIS
+export let CORE_AGENT = active.CORE_AGENT
+export let CORE_PROJECT = active.CORE_PROJECT
+export let CORE_SKILL = active.CORE_SKILL
+export let CORE_PROVIDER = active.CORE_PROVIDER
+export let CORE_CHANNEL = active.CORE_CHANNEL
+export let CORE_PERIPHERY = active.CORE_PERIPHERY
+export let CORE_DARK = active.CORE_AGENT // legacy alias
+
+export let HALO_AXIS = active.HALO_AXIS
+export let HALO_CODEX = active.HALO_CODEX
+export let HALO_AGENT = active.HALO_AGENT
+export let HALO_PROJECT = active.HALO_PROJECT
+export let HALO_SKILL = active.HALO_SKILL
+export let HALO_PROVIDER = active.HALO_PROVIDER
+export let HALO_CHANNEL = active.HALO_CHANNEL
+
+export let GOLD_DEEP = active.GOLD_DEEP
+export let GOLD_FOCUS = active.GOLD_FOCUS
+
+export let INK = active.INK
+export let INK_MUTED = active.INK_MUTED
+export let INK_LINE = active.INK_LINE
+export let BG = active.BG
+
+// Legacy aliases — kept for callers that pre-date the HALO_* split.
+export let COLOR_AXIS = active.HALO_AXIS
+export let COLOR_CODEX = active.HALO_CODEX
+export let COLOR_AGENT = active.HALO_AGENT
+export let COLOR_PROJECT = active.HALO_PROJECT
+export let COLOR_SKILL = active.HALO_SKILL
+export let COLOR_PROVIDER = active.HALO_PROVIDER
+export let COLOR_CHANNEL = active.HALO_CHANNEL
+export let COLOR_SYNAPSE = active.INK_LINE
+
+// HEX is reassigned to a fresh object on theme change so 3D materials reading
+// `HEX.axis` etc. always see the current values.
+export let HEX = buildHex(active)
+
+function buildHex(p: Palette) {
+  return {
+    axis: p.HALO_AXIS,
+    axisGold: p.GOLD_DEEP,
+    focusGold: p.GOLD_FOCUS,
+    codex: p.HALO_CODEX,
+    agent: p.HALO_AGENT,
+    project: p.HALO_PROJECT,
+    skill: p.HALO_SKILL,
+    provider: p.HALO_PROVIDER,
+    channel: p.HALO_CHANNEL,
+    synapse: p.INK_LINE,
+    coreAxis: p.CORE_AXIS,
+    coreAgent: p.CORE_AGENT,
+    coreProject: p.CORE_PROJECT,
+    coreSkill: p.CORE_SKILL,
+    coreProvider: p.CORE_PROVIDER,
+    coreChannel: p.CORE_CHANNEL,
+    corePeriphery: p.CORE_PERIPHERY,
+    coreDark: p.CORE_AGENT,
+    ink: p.INK,
+    inkMuted: p.INK_MUTED,
+    bg: p.BG,
+  }
+}
+
+export function getMapTheme(): MapTheme {
+  return activeTheme
+}
+
+export function setMapTheme(t: MapTheme): void {
+  if (t === activeTheme) return
+  activeTheme = t
+  active = t === 'dark' ? DARK : LIGHT
+  // Reassign every let export so live bindings update everywhere.
+  CORE_AXIS = active.CORE_AXIS
+  CORE_AGENT = active.CORE_AGENT
+  CORE_PROJECT = active.CORE_PROJECT
+  CORE_SKILL = active.CORE_SKILL
+  CORE_PROVIDER = active.CORE_PROVIDER
+  CORE_CHANNEL = active.CORE_CHANNEL
+  CORE_PERIPHERY = active.CORE_PERIPHERY
+  CORE_DARK = active.CORE_AGENT
+  HALO_AXIS = active.HALO_AXIS
+  HALO_CODEX = active.HALO_CODEX
+  HALO_AGENT = active.HALO_AGENT
+  HALO_PROJECT = active.HALO_PROJECT
+  HALO_SKILL = active.HALO_SKILL
+  HALO_PROVIDER = active.HALO_PROVIDER
+  HALO_CHANNEL = active.HALO_CHANNEL
+  GOLD_DEEP = active.GOLD_DEEP
+  GOLD_FOCUS = active.GOLD_FOCUS
+  INK = active.INK
+  INK_MUTED = active.INK_MUTED
+  INK_LINE = active.INK_LINE
+  BG = active.BG
+  COLOR_AXIS = active.HALO_AXIS
+  COLOR_CODEX = active.HALO_CODEX
+  COLOR_AGENT = active.HALO_AGENT
+  COLOR_PROJECT = active.HALO_PROJECT
+  COLOR_SKILL = active.HALO_SKILL
+  COLOR_PROVIDER = active.HALO_PROVIDER
+  COLOR_CHANNEL = active.HALO_CHANNEL
+  COLOR_SYNAPSE = active.INK_LINE
+  HEX = buildHex(active)
+  try {
+    localStorage.setItem(STORAGE_KEY, t)
+  } catch {
+    /* noop */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers (functions re-read the let bindings on each call)
+// ---------------------------------------------------------------------------
+
 export function nodeColor(n: Pick<EcoNode, 'id' | 'kind'>): string {
   if (n.id === 'axis') return HALO_AXIS
   if (n.id.startsWith('prov:openai-codex')) return HALO_CODEX
@@ -62,9 +231,14 @@ export function nodeColor(n: Pick<EcoNode, 'id' | 'kind'>): string {
 
 export function nodeCore(n: Pick<EcoNode, 'id' | 'kind'>): string {
   if (n.id === 'axis') return CORE_AXIS
-  if (n.kind === 'agent') return CORE_AGENT
-  if (n.kind === 'project') return CORE_PROJECT
-  return CORE_PERIPHERY
+  switch (n.kind) {
+    case 'agent': return CORE_AGENT
+    case 'project': return CORE_PROJECT
+    case 'skill': return CORE_SKILL
+    case 'provider': return CORE_PROVIDER
+    case 'channel': return CORE_CHANNEL
+    default: return CORE_PERIPHERY
+  }
 }
 
 export function familyColor(kind: NodeKind): string {
@@ -81,28 +255,6 @@ export function familyColor(kind: NodeKind): string {
       return HALO_CHANNEL
   }
 }
-
-// Single map used by 3D materials — they need concrete hex values.
-export const HEX = {
-  axis: HALO_AXIS,
-  axisGold: GOLD_DEEP,
-  focusGold: GOLD_FOCUS,
-  codex: HALO_CODEX,
-  agent: HALO_AGENT,
-  project: HALO_PROJECT,
-  skill: HALO_SKILL,
-  provider: HALO_PROVIDER,
-  channel: HALO_CHANNEL,
-  synapse: INK_LINE,
-  coreAxis: CORE_AXIS,
-  coreAgent: CORE_AGENT,
-  coreProject: CORE_PROJECT,
-  corePeriphery: CORE_PERIPHERY,
-  coreDark: CORE_DARK,
-  ink: INK,
-  inkMuted: INK_MUTED,
-  bg: BG,
-} as const
 
 export function nodeHex(n: { id: string; kind: string }): string {
   if (n.id === 'axis') return HEX.axis
@@ -125,15 +277,16 @@ export function nodeHex(n: { id: string; kind: string }): string {
 
 export function nodeCoreHex(n: { id: string; kind: string }): string {
   if (n.id === 'axis') return HEX.coreAxis
-  if (n.kind === 'agent') return HEX.coreAgent
-  if (n.kind === 'project') return HEX.coreProject
-  return HEX.corePeriphery
+  switch (n.kind) {
+    case 'agent': return HEX.coreAgent
+    case 'project': return HEX.coreProject
+    case 'skill': return HEX.coreSkill
+    case 'provider': return HEX.coreProvider
+    case 'channel': return HEX.coreChannel
+    default: return HEX.corePeriphery
+  }
 }
 
-// Edge color is a function of the two nodes it connects — not of the edge
-// type. The precedence rule follows the hierarchy of the map: anything
-// touching Axis is gold, anything else touching a project is sand, anything
-// between agents is sky; purely peripheral lines fall to neutral gray.
 export function edgeColor(aKind: string, aId: string, bKind: string, bId: string): string {
   if (aId === 'axis' || bId === 'axis') return GOLD_DEEP
   if (aKind === 'project' || bKind === 'project') return HALO_PROJECT
@@ -141,8 +294,6 @@ export function edgeColor(aKind: string, aId: string, bKind: string, bId: string
   return INK_LINE
 }
 
-// Deterministic phase in [0, 1) so halos/pulses stagger across nodes without
-// being truly random — stable across renders.
 export function phaseFor(id: string): number {
   let h = 0
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0

@@ -45,9 +45,11 @@ body {
 /* Neural map — very light animated mist layer.
    A few large, low-opacity radial gradients whose positions shift slowly.
    Each gradient has its own period and offset so the pattern never loops
-   obviously. Kept inside a single layer so the main canvas stays white. */
+   obviously. Background color comes from the parent shell so the layer
+   works on both light and dark themes; gradient colors are theme-tuned
+   via the .map-bruma--dark modifier. */
 .map-bruma {
-  background-color: #ffffff;
+  background-color: transparent;
   background-image:
     radial-gradient(ellipse 55% 45% at 25% 20%, rgba(200, 146, 40, 0.045), transparent 65%),
     radial-gradient(ellipse 50% 40% at 75% 75%, rgba(156, 207, 222, 0.07), transparent 65%),
@@ -55,6 +57,14 @@ body {
     radial-gradient(ellipse 45% 38% at 15% 80%, rgba(156, 217, 181, 0.05), transparent 65%);
   background-size: 180% 180%, 200% 200%, 160% 160%, 220% 220%;
   animation: map-bruma-drift 42s ease-in-out infinite;
+}
+
+.map-bruma--dark {
+  background-image:
+    radial-gradient(ellipse 55% 45% at 25% 20%, rgba(232, 200, 120, 0.06), transparent 65%),
+    radial-gradient(ellipse 50% 40% at 75% 75%, rgba(96, 165, 250, 0.07), transparent 65%),
+    radial-gradient(ellipse 40% 35% at 60% 40%, rgba(167, 139, 250, 0.06), transparent 65%),
+    radial-gradient(ellipse 45% 38% at 15% 80%, rgba(52, 211, 153, 0.06), transparent 65%);
 }
 
 @keyframes map-bruma-drift {

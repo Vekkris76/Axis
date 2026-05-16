@@ -21,6 +21,7 @@ import {
   HALO_PROJECT,
   INK_LINE,
   INK_MUTED,
+  getMapTheme,
   nodeColor,
   nodeCore,
   phaseFor,
@@ -364,20 +365,29 @@ export function MapView2D({
       </svg>
 
       {/* Recenter + zoom indicator */}
-      <div className="absolute bottom-20 right-4 flex flex-col items-end gap-1">
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            resetView()
-          }}
-          className="rounded-md border border-neutral-300 bg-white/80 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500 backdrop-blur transition hover:border-neutral-400 hover:text-neutral-900"
-        >
-          recenter
-        </button>
-        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-400">
-          zoom {userZoom.toFixed(2)}×
-        </span>
-      </div>
+      {(() => {
+        const isDark = getMapTheme() === 'dark'
+        const btnCls = isDark
+          ? 'border-slate-700 bg-slate-900/70 text-slate-400 hover:border-slate-500 hover:text-slate-100'
+          : 'border-neutral-300 bg-white/80 text-neutral-500 hover:border-neutral-400 hover:text-neutral-900'
+        const zoomCls = isDark ? 'text-slate-500' : 'text-neutral-400'
+        return (
+          <div className="absolute bottom-20 right-4 flex flex-col items-end gap-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                resetView()
+              }}
+              className={`rounded-md border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] backdrop-blur transition ${btnCls}`}
+            >
+              recenter
+            </button>
+            <span className={`font-mono text-[10px] uppercase tracking-[0.2em] ${zoomCls}`}>
+              zoom {userZoom.toFixed(2)}×
+            </span>
+          </div>
+        )
+      })()}
     </>
   )
 }
@@ -402,20 +412,29 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
   const isAxis = node.id === 'axis'
   const isProject = node.kind === 'project'
   const focused = hovered || selected
-  // Core is the only solid shape. Small, dark, unambiguous.
-  const coreR = isAxis ? Math.max(5, r * 0.45) : focused ? 4.5 : 3.5
+  // Core scales with the node's own radius so identity reads at a glance.
+  // Axis stays large (it's the hub); other nodes are ~40% of their halo.
+  const coreR = isAxis
+    ? Math.max(6, r * 0.5)
+    : Math.max(focused ? 6 : 5, r * 0.42)
   const halo = nodeColor(node)
   const core = nodeCore(node)
   const strokeColor = node.active ? halo : INK_LINE
   const phase = phaseFor(node.id)
   const haloDelay = phase * 4
-  // Activity modulates the breathing trace: faster pulse + brighter when the
-  // node is being touched (Sentinel hit, chat exchange, etc).
+  // Bimodal pulse: idle nodes barely breathe (slow & faint, the room is calm);
+  // active nodes pulse clearly and brightly so a Sentinel run or a chat
+  // exchange stands out from the ambient.
   const activity = Math.min(1, Math.max(0, node.activity ?? 0))
-  const baseDuration = focused ? 2 : 5 + phase * 2
-  const haloDuration = Math.max(1, baseDuration - activity * 3)
-  const haloOpacityLow = focused ? 0.5 : 0.18 + activity * 0.2
-  const haloOpacityHigh = focused ? 0.85 : 0.45 + activity * 0.35
+  const isHitting = activity > 0.05
+  const haloDuration = focused
+    ? 2
+    : isHitting
+      ? Math.max(1.5, 3.5 - activity * 2)
+      : 12 + phase * 4
+  const haloOpacityLow = focused ? 0.5 : isHitting ? 0.3 : 0.1
+  const haloOpacityHigh = focused ? 0.85 : isHitting ? 0.7 + activity * 0.2 : 0.18
+  const haloScaleHigh = focused ? 1.08 : isHitting ? 1 + activity * 0.08 : 1.015
 
   return (
     <motion.g
@@ -437,7 +456,7 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
           strokeWidth={focused ? 1 : 0.7}
           animate={{
             opacity: [haloOpacityLow, haloOpacityHigh, haloOpacityLow],
-            scale: focused ? 1.08 : 1 + activity * 0.06,
+            scale: haloScaleHigh,
           }}
           transition={{
             opacity: {
@@ -446,7 +465,7 @@ function Neuron({ node, x, y, r, hovered, selected, onEnter, onLeave, onClick }:
               ease: 'easeInOut',
               delay: haloDelay,
             },
-            scale: { duration: 0.3 },
+            scale: { duration: 0.4 },
           }}
           style={{ transformOrigin: `${x}px ${y}px` }}
         />

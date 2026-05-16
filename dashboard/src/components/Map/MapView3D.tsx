@@ -418,16 +418,20 @@ function Node3DShape({
     }
 
     if (shellRef.current) {
-      // Activity speeds up the breathing and widens the opacity swing so a
-      // busy node visibly pulses brighter and faster than a quiet one.
+      // Bimodal pulse: idle nodes barely breathe (long period, tiny swing —
+      // the scene feels calm, not dead); active nodes pulse fast and bright
+      // so the difference between "alive" and "working" is unmistakable.
       const activity = Math.min(1, Math.max(0, node.activity ?? 0))
-      const period = Math.max(1.2, (5 + phase * 2) - activity * 3.2)
+      const isHitting = activity > 0.05
+      const period = isHitting
+        ? Math.max(1.5, 3.5 - activity * 2)
+        : 14 + phase * 4
       const pulse = 0.6 + 0.4 * Math.sin((t / period + phase) * Math.PI * 2)
       const mat = shellRef.current.material as THREE.LineBasicMaterial
       const baseOp = focused ? 0.98 : node.active ? 0.85 : 0.45
       // Softer dim — 0.5 instead of 0.22
       const dim = dimmed ? 0.5 : 1
-      const swing = 0.25 + activity * 0.35
+      const swing = isHitting ? 0.35 + activity * 0.35 : 0.08
       mat.opacity = baseOp * (1 - swing + swing * pulse * 2) * dim
       // Focus mode: tint the envelope gold when this node is the target
       mat.color.set(focused ? HEX.focusGold : haloColor)

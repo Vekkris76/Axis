@@ -1,7 +1,7 @@
 // Right-side panel — lists every active project with its colour dot, name,
 // member count, and summary. Light theme to match the map shell.
 import type { EcoProject } from '../../../hooks/useEcosystem'
-import { HALO_PROJECT, INK, INK_MUTED } from './palette'
+import { HALO_PROJECT, INK, INK_MUTED, getMapTheme } from './palette'
 
 // All projects share HALO_PROJECT so the family is visually unified;
 // per-project hex colours are ignored here on purpose (user request).
@@ -16,6 +16,12 @@ export function ProjectsHUD({
   onSelect: (nodeId: string) => void
 }) {
   if (projects.length === 0) return null
+
+  const isDark = getMapTheme() === 'dark'
+  const cardBg = isDark ? 'bg-slate-900/80' : 'bg-white/90'
+  const cardBorder = isDark ? 'border-slate-700' : 'border-neutral-200'
+  const cardBorderHover = isDark ? 'hover:border-slate-500' : 'hover:border-neutral-300'
+  const cardBorderSel = isDark ? 'border-slate-400' : 'border-neutral-400'
 
   return (
     <div className="pointer-events-auto absolute right-4 top-4 z-10 w-64 select-none">
@@ -39,8 +45,8 @@ export function ProjectsHUD({
                 onSelect(nodeId)
               }}
               className={
-                'rounded-lg border bg-white/90 px-3 py-2 text-left backdrop-blur transition shadow-sm ' +
-                (isSel ? 'border-neutral-400' : 'border-neutral-200 hover:border-neutral-300')
+                `rounded-lg border ${cardBg} px-3 py-2 text-left backdrop-blur transition shadow-sm ` +
+                (isSel ? cardBorderSel : `${cardBorder} ${cardBorderHover}`)
               }
               style={{ color: INK }}
             >

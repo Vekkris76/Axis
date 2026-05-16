@@ -10,10 +10,12 @@ type Props = {
 
 export function AgentPresence({ name, Mark, state, activity = 0 }: Props) {
   const isAlive = state !== 'offline'
-  // Pulse speed scales with activity. Idle = slow (6s); responding = fast (1.5s).
-  const haloDuration = isAlive ? Math.max(1.5, 6 - activity * 4.5) : 6
-  const orbDuration = isAlive ? Math.max(1.2, 4 - activity * 2.8) : 4
-  const haloIntensity = 0.5 + Math.min(0.4, activity * 0.5)
+  // Bimodal: idle = very slow & faint (alive but calm); active = clear pulse.
+  const isHitting = activity > 0.05
+  const haloDuration = isHitting ? Math.max(1.5, 3.5 - activity * 2) : 14
+  const orbDuration = isHitting ? Math.max(1.5, 3 - activity * 1.5) : 10
+  const haloIntensityLow = isHitting ? 0.55 : 0.25
+  const haloIntensityHigh = isHitting ? 0.85 + activity * 0.1 : 0.35
 
   return (
     <div className="relative flex flex-col items-center gap-8">
@@ -24,7 +26,7 @@ export function AgentPresence({ name, Mark, state, activity = 0 }: Props) {
           background:
             'radial-gradient(circle, oklch(0.85 0.12 200 / 0.12) 0%, transparent 60%)',
         }}
-        animate={isAlive ? { scale: [1, 1.06 + activity * 0.05, 1], opacity: [haloIntensity, haloIntensity + 0.3, haloIntensity] } : {}}
+        animate={isAlive ? { scale: [1, isHitting ? 1.06 + activity * 0.05 : 1.015, 1], opacity: [haloIntensityLow, haloIntensityHigh, haloIntensityLow] } : {}}
         transition={{ duration: haloDuration, repeat: Infinity, ease: 'easeInOut' }}
       />
 
@@ -50,11 +52,17 @@ export function AgentPresence({ name, Mark, state, activity = 0 }: Props) {
         className="frosted relative flex h-44 w-44 items-center justify-center rounded-full text-hangar-accent"
         animate={
           isAlive
-            ? { boxShadow: [
-                `0 0 60px oklch(0.85 0.12 200 / ${0.25 + activity * 0.2}), inset 0 0 40px oklch(0.85 0.12 200 / ${0.1 + activity * 0.1})`,
-                `0 0 100px oklch(0.85 0.12 200 / ${0.4 + activity * 0.3}), inset 0 0 60px oklch(0.85 0.12 200 / ${0.2 + activity * 0.2})`,
-                `0 0 60px oklch(0.85 0.12 200 / ${0.25 + activity * 0.2}), inset 0 0 40px oklch(0.85 0.12 200 / ${0.1 + activity * 0.1})`,
-              ]}
+            ? { boxShadow: isHitting
+                ? [
+                    `0 0 60px oklch(0.85 0.12 200 / ${0.3 + activity * 0.2}), inset 0 0 40px oklch(0.85 0.12 200 / ${0.15 + activity * 0.1})`,
+                    `0 0 110px oklch(0.85 0.12 200 / ${0.55 + activity * 0.3}), inset 0 0 70px oklch(0.85 0.12 200 / ${0.3 + activity * 0.2})`,
+                    `0 0 60px oklch(0.85 0.12 200 / ${0.3 + activity * 0.2}), inset 0 0 40px oklch(0.85 0.12 200 / ${0.15 + activity * 0.1})`,
+                  ]
+                : [
+                    '0 0 50px oklch(0.85 0.12 200 / 0.15), inset 0 0 30px oklch(0.85 0.12 200 / 0.06)',
+                    '0 0 60px oklch(0.85 0.12 200 / 0.22), inset 0 0 35px oklch(0.85 0.12 200 / 0.1)',
+                    '0 0 50px oklch(0.85 0.12 200 / 0.15), inset 0 0 30px oklch(0.85 0.12 200 / 0.06)',
+                  ]}
             : {}
         }
         transition={{ duration: orbDuration, repeat: Infinity, ease: 'easeInOut' }}

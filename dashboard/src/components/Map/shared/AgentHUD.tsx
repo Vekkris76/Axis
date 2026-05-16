@@ -2,7 +2,7 @@
 // indicator, and click-to-select. Light theme to match the rest of the
 // map shell.
 import type { EcoNode } from '../../../hooks/useEcosystem'
-import { INK, INK_MUTED, nodeColor } from './palette'
+import { INK, INK_MUTED, getMapTheme, nodeColor } from './palette'
 
 const AGENT_PURPOSE: Record<string, string> = {
   axis: 'Orquestrador. Coordina la resta del sistema.',
@@ -37,6 +37,13 @@ export function AgentHUD({
 
   if (agents.length === 0) return null
 
+  const isDark = getMapTheme() === 'dark'
+  const cardBg = isDark ? 'bg-slate-900/80' : 'bg-white/90'
+  const cardBorder = isDark ? 'border-slate-700' : 'border-neutral-200'
+  const cardBorderHover = isDark ? 'hover:border-slate-500' : 'hover:border-neutral-300'
+  const cardBorderSel = isDark ? 'border-slate-400' : 'border-neutral-400'
+  const inactiveDot = isDark ? '#475569' : '#d4d4d4'
+
   return (
     <div className="pointer-events-auto absolute left-4 top-4 z-10 w-60 select-none">
       <div
@@ -61,8 +68,8 @@ export function AgentHUD({
                 onSelect(a.id)
               }}
               className={
-                'rounded-lg border bg-white/90 px-3 py-2 text-left backdrop-blur transition shadow-sm ' +
-                (isSel ? 'border-neutral-400' : 'border-neutral-200 hover:border-neutral-300')
+                `rounded-lg border ${cardBg} px-3 py-2 text-left backdrop-blur transition shadow-sm ` +
+                (isSel ? cardBorderSel : `${cardBorder} ${cardBorderHover}`)
               }
               style={{ color: INK }}
             >
@@ -70,7 +77,7 @@ export function AgentHUD({
                 <span
                   className="h-2 w-2 rounded-full"
                   style={{
-                    background: a.active ? accent : '#d4d4d4',
+                    background: a.active ? accent : inactiveDot,
                     boxShadow: a.active ? `0 0 6px ${accent}` : 'none',
                   }}
                 />
