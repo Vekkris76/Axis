@@ -1,7 +1,16 @@
 // Right-side panel — lists every active project with its colour dot, name,
 // member count, and summary. Light theme to match the map shell.
+import { useEffect, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { EcoProject } from '../../../hooks/useEcosystem'
 import { HALO_PROJECT, INK, INK_MUTED, getMapTheme } from './palette'
+
+const STORAGE_KEY = 'mesh.projects-hud.expanded'
+
+function loadExpanded(): boolean {
+  if (typeof localStorage === 'undefined') return false
+  return localStorage.getItem(STORAGE_KEY) === '1'
+}
 
 // All projects share HALO_PROJECT so the family is visually unified;
 // per-project hex colours are ignored here on purpose (user request).
@@ -15,6 +24,15 @@ export function ProjectsHUD({
   selected: string | null
   onSelect: (nodeId: string) => void
 }) {
+  const [expanded, setExpanded] = useState<boolean>(() => loadExpanded())
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, expanded ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [expanded])
+
   if (projects.length === 0) return null
 
   const isDark = getMapTheme() === 'dark'
@@ -22,16 +40,38 @@ export function ProjectsHUD({
   const cardBorder = isDark ? 'border-slate-700' : 'border-neutral-200'
   const cardBorderHover = isDark ? 'hover:border-slate-500' : 'hover:border-neutral-300'
   const cardBorderSel = isDark ? 'border-slate-400' : 'border-neutral-400'
+  const tabBg = isDark ? 'bg-slate-900/80' : 'bg-white/90'
+  const tabBorder = isDark ? 'border-slate-700 hover:border-slate-500' : 'border-neutral-200 hover:border-neutral-300'
+
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        className={`pointer-events-auto absolute right-4 top-4 z-10 flex items-center gap-2 rounded-md border ${tabBorder} ${tabBg} px-3 py-2 font-mono text-[10px] uppercase tracking-[0.25em] shadow-sm backdrop-blur transition`}
+        style={{ color: INK_MUTED }}
+        title="Show projects"
+      >
+        <ChevronLeft size={12} />
+        <span>projects</span>
+        <span style={{ color: INK }}>{projects.length}</span>
+      </button>
+    )
+  }
 
   return (
     <div className="pointer-events-auto absolute right-4 top-4 z-10 w-64 select-none">
-      <div
-        className="mb-2 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.3em]"
+      <button
+        onClick={() => setExpanded(false)}
+        className="mb-2 flex w-full items-center justify-between font-mono text-[10px] uppercase tracking-[0.3em] transition"
         style={{ color: INK_MUTED }}
+        title="Collapse"
       >
         <span>projects</span>
-        <span>{projects.length}</span>
-      </div>
+        <span className="flex items-center gap-1.5">
+          <span>{projects.length}</span>
+          <ChevronRight size={12} />
+        </span>
+      </button>
       <div className="flex max-h-[calc(100vh-120px)] flex-col gap-1.5 overflow-y-auto pr-1">
         {projects.map((p) => {
           const nodeId = `project:${p.id}`

@@ -1,8 +1,17 @@
 // Left-side panel — lists every agent with a short purpose line, hierarchy
 // indicator, and click-to-select. Light theme to match the rest of the
 // map shell.
+import { useEffect, useState } from 'react'
+import { ChevronRight, ChevronLeft } from 'lucide-react'
 import type { EcoNode } from '../../../hooks/useEcosystem'
 import { INK, INK_MUTED, getMapTheme, nodeColor } from './palette'
+
+const STORAGE_KEY = 'mesh.agent-hud.expanded'
+
+function loadExpanded(): boolean {
+  if (typeof localStorage === 'undefined') return false
+  return localStorage.getItem(STORAGE_KEY) === '1'
+}
 
 const AGENT_PURPOSE: Record<string, string> = {
   axis: 'Orquestrador. Coordina la resta del sistema.',
@@ -35,6 +44,15 @@ export function AgentHUD({
       return a.label.localeCompare(b.label)
     })
 
+  const [expanded, setExpanded] = useState<boolean>(() => loadExpanded())
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, expanded ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [expanded])
+
   if (agents.length === 0) return null
 
   const isDark = getMapTheme() === 'dark'
@@ -43,18 +61,41 @@ export function AgentHUD({
   const cardBorderHover = isDark ? 'hover:border-slate-500' : 'hover:border-neutral-300'
   const cardBorderSel = isDark ? 'border-slate-400' : 'border-neutral-400'
   const inactiveDot = isDark ? '#475569' : '#d4d4d4'
+  const tabBg = isDark ? 'bg-slate-900/80' : 'bg-white/90'
+  const tabBorder = isDark ? 'border-slate-700 hover:border-slate-500' : 'border-neutral-200 hover:border-neutral-300'
+  const activeCount = agents.filter((a) => a.active).length
+
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        className={`pointer-events-auto absolute left-4 top-4 z-10 flex items-center gap-2 rounded-md border ${tabBorder} ${tabBg} px-3 py-2 font-mono text-[10px] uppercase tracking-[0.25em] shadow-sm backdrop-blur transition`}
+        style={{ color: INK_MUTED }}
+        title="Show agents"
+      >
+        <span>agents</span>
+        <span style={{ color: INK }}>{activeCount}/{agents.length}</span>
+        <ChevronRight size={12} />
+      </button>
+    )
+  }
 
   return (
     <div className="pointer-events-auto absolute left-4 top-4 z-10 w-60 select-none">
-      <div
-        className="mb-2 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.3em]"
+      <button
+        onClick={() => setExpanded(false)}
+        className="mb-2 flex w-full items-center justify-between font-mono text-[10px] uppercase tracking-[0.3em] transition"
         style={{ color: INK_MUTED }}
+        title="Collapse"
       >
-        <span>agents</span>
-        <span>
-          {agents.filter((a) => a.active).length}/{agents.length}
+        <span className="flex items-center gap-1.5">
+          <ChevronLeft size={12} />
+          <span>agents</span>
         </span>
-      </div>
+        <span>
+          {activeCount}/{agents.length}
+        </span>
+      </button>
       <div className="flex flex-col gap-1.5">
         {agents.map((a) => {
           const isSel = selected === a.id
